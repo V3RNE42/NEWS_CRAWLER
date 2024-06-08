@@ -1,0 +1,17 @@
+{
+    "email": {
+        "sender": "sender@hotmail.com",
+        "recipients": ["receriver_1@hotmail.com", "receiver_2@gmail.com"],
+        "smtp_server": "smtp.sendgrid.net",
+        "smtp_port": 587,
+        "smtp_user": "apikey",
+        "smtp_pass": "YOUR_SENDGRID_APIKEY"
+    },
+    "time": {
+        "crawl": "05:35",
+        "email": "08:00"
+    },
+    "openai": {
+        "api_key": "YOUR_OPENAI_APIKEY"
+    }
+}
