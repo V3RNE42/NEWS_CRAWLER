@@ -144,14 +144,18 @@ const crawlWebsites = async () => {
   return allResults;
 };
 
-const saveResults = (results) => {
+const saveResults = async (results) => {
   const resultsPath = path.join(__dirname, "crawled_results.json");
   const flagPath = path.join(__dirname, "crawl_complete.flag");
+  const mostCommonTerm = mostCommonTerms(results);
 
   const topArticles = selectTopSummaries(results);
-  topArticles.forEach(async (article) => article.summary = await summarizeText(article.link));
 
-  const resultsWithTop = { ...results, topArticles };
+  for (let i = 0; i < topArticles.length; i++) {
+    topArticles[i].summary = await summarizeText(topArticles[i].link);    
+  }
+
+  const resultsWithTop = { ...results, topArticles, mostCommonTerm };
 
   fs.writeFileSync(resultsPath, JSON.stringify(resultsWithTop, null, 2));
   fs.writeFileSync(flagPath, "Crawling complete");
@@ -163,11 +167,30 @@ const loadResults = () => {
 };
 
 const selectTopSummaries = (results) => {
-  const allArticles = [];
-  for (const articles of Object.values(results)) allArticles.push(...articles);
-  allArticles.sort((a, b) => b.score - a.score);
-  return allArticles.slice(0, Math.floor(Math.sqrt(allArticles.length)));
+  results.sort((a, b) => b.score - a.score);
+  let top = [];
+  let numOfTopArticles = Math.floor(Math.sqrt(results.length));
+  
+  for (let index = 0; index < numOfTopArticles; index++) {
+    top.push(results.shift());
+  }
+  
+  return top;
 };
+
+function mostCommonTerms(allResults) {
+  const termCount = {};
+
+  for (const [term, articles] of Object.entries(allResults)) {
+    termCount[term] = articles.length;
+  }
+
+  const sortedTerms = Object.entries(termCount).sort((a, b) => b[1] - a[1]);
+  const highestFrequency = sortedTerms[0][1];
+  const topTerms = sortedTerms.filter(term => term[1] === highestFrequency).slice(0, 3).map(term => term[0]);
+
+  return topTerms.join('/');
+}
 
 const sendEmail = async () => {
   const emailTime = new Date();
@@ -185,10 +208,8 @@ const sendEmail = async () => {
   const sortedResults = Object.entries(results).sort(
     (a, b) => b[1].length - a[1].length
   );
-  const mostFrequentTerm = sortedResults.length
-    ? sortedResults[0][0]
-    : "Sin Términos :^( ";
-  const subject = `Noticias Frescas ${todayDate()} - ${mostFrequentTerm.toUpperCase()}`;
+  const mostFrequentTerm = results.mostCommonTerm;
+  const subject = `Noticias Frescas ${todayDate()} - ${mostFrequentTerm}`;
   const topArticles = results.topArticles;
 
   let emailBody = `Estas son las ${totalLinks} noticias frescas de hoy ${todayDate()} :<br>`;
@@ -248,7 +269,7 @@ const main = async () => {
     await new Promise((r) => setTimeout(r, 60000));
   }
   const results = await crawlWebsites();
-  saveResults(results);
+  await saveResults(results);
   await sendEmail();
 };
 
