@@ -14,7 +14,8 @@ Welcome to the NodeJS Webcrawler Newsletter! This newsletter aims to provide you
 
 ## Introduction
 
-In this newsletter, we will explore the fascinating world of web crawling using NodeJS. Whether you are a beginner or an experienced developer, this newsletter will help you stay up-to-date with the latest trends and techniques in web crawling.
+This is a NodeJS-based project for daily webcrawling of news sites looking for certain terms, then emailing those results if they're from the last 24 hours.
+You can download it and use it as you please.
 
 ## Usage
 
