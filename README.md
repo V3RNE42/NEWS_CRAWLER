@@ -1,3 +1,6 @@
+### ENGLISH
+
+
 # NodeJS Webcrawler/Newsletter based on Sendgrid and OpenAI APIs
 
 Welcome to the NodeJS Webcrawler Newsletter! This newsletter aims to provide you with the latest updates, tips, and resources related to whatever you want! It's defaulted to Spanish newspapers and international security issues, but you can adapt it to your own needs! :^)
@@ -11,6 +14,13 @@ Welcome to the NodeJS Webcrawler Newsletter! This newsletter aims to provide you
   - [Installation](#installation)
     - [Configuration Guide](#configuration-guide)
     - [Customization Guide](#customization-guide)
+    - [SPANISH](#spanish)
+- [NodeJS Webcrawler/Newsletter basado en Sendgrid y OpenAI APIs](#nodejs-webcrawlernewsletter-basado-en-sendgrid-y-openai-apis)
+  - [Introducción](#introducción)
+  - [Uso](#uso)
+  - [Instalación](#instalación)
+    - [Guía de Configuración](#guía-de-configuración)
+    - [Guía de Personalización](#guía-de-personalización)
 
 ## Introduction
 
@@ -25,7 +35,7 @@ To use this NodeJS webcrawler newsletter, follow these steps:
 2. Install the required dependencies by running the following command in your terminal:
 
     ```
-    npm install
+    npm install openai@^4.0.0 node-cron path fs cheerio nodemailer
     ```
 
 3. Configure the webcrawler by updating the `config.json` file with your desired settings. You can specify the target website, crawling depth, and other parameters. Refer to the [Configuration Guide](#configuration-guide) for more details.
@@ -70,3 +80,68 @@ The `config.json` file allows you to customize the behavior of the webcrawler. H
 ### Customization Guide
 
 The `terminos.js` file contains the terms that the webcrawler will search for on the target websites. You can customize this file by adding or removing **terms** based on your specific requirements. Same applies for **websites**.
+
+### SPANISH
+
+# NodeJS Webcrawler/Newsletter basado en Sendgrid y OpenAI APIs
+
+¡Bienvenido al Newsletter basado en webcrawling con NodeJS! Está predeterminado a periódicos españoles y temas de seguridad internacional, pero puedes adaptarlo a tus propias necesidades. :^)
+
+## Introducción
+
+Este es un proyecto basado en NodeJS para la webcrawling diaria de sitios de noticias en busca de ciertos términos, y luego enviar esos resultados por correo electrónico si son de las últimas 24 horas. 
+Puedes descargarlo y usarlo como desees.
+
+## Uso
+
+Para utilizar esta newsletter de webcrawler de NodeJS, sigue estos pasos:
+
+1. Clona el repositorio a tu máquina local.
+2. Instala las dependencias necesarias ejecutando el contenido de `install.txt` en la consola:
+
+    ```bash
+    npm install openai@^4.0.0 node-cron path fs cheerio nodemailer
+    ```
+
+3. Configura el webcrawler actualizando el archivo `config.json` con tus ajustes deseados. Puedes especificar el sitio web objetivo, la profundidad del crawling y otros parámetros. Consulta la [Guía de Configuración](#guía-de-configuración) para más detalles.
+
+4. Personaliza el comportamiento del webcrawler modificando el archivo `terminos.js`. Este archivo contiene los términos que el webcrawler buscará en el sitio web objetivo. Consulta la [Guía de Personalización](#guía-de-personalización) para más detalles.
+
+5. Ejecuta el webcrawler ejecutando el siguiente comando:
+
+    ```bash
+    node main.js
+    ```
+
+    Esto iniciará el webcrawler y comenzará a rastrear el sitio web objetivo según la configuración proporcionada.
+
+6. Monitorea el progreso y los resultados del webcrawler. El webcrawler imprimirá los datos rastreados en la consola y también los guardará en un archivo para un análisis posterior.
+
+## Instalación
+
+Para instalar y ejecutar esta newsletter de webcrawler de NodeJS, sigue estos pasos:
+
+1. Instala NodeJS en tu máquina local si aún no lo has hecho.
+
+2. Clona el repositorio a tu máquina local.
+
+3. Navega al directorio del proyecto en tu terminal.
+
+4. Copia el contenido del archivo `install.txt` y ejecútalo en la consola.
+
+5. Una vez completada la instalación, puedes proceder a la sección de uso para configurar y ejecutar el webcrawler.
+
+### Guía de Configuración
+
+El archivo `config.json` te permite personalizar el comportamiento del webcrawler. Aquí hay algunas configuraciones clave que puedes modificar:
+
+- `sender`: Especifica el correo electrónico del remitente con una cuenta asociada smtp.sendgrid
+- `recipients`: Especifica el correo electrónico de las personas que recibirán tus correos electrónicos.
+- `crawl`: Establece la hora en la que debe comenzar el rastreo.
+- `email`: Establece la hora desde la cual se pueden enviar correos electrónicos; obviamente no comenzará hasta que se haya alcanzado esa hora Y se haya completado el rastreo de noticias
+- `api_key`: Establece tu clave API actual de OpenAI para usar el modelo GPT-4 para generar algunos resúmenes de correos electrónicos.
+- `smtp_pass`: Establece la clave API de SendGrid de tu cuenta
+
+### Guía de Personalización
+
+El archivo `terminos.js` contiene los términos que el webcrawler buscará en los sitios web objetivo. Puedes personalizar este archivo añadiendo o eliminando **términos** según tus requisitos específicos. Lo mismo aplica para **sitios web**.
