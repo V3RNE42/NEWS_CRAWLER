@@ -180,14 +180,28 @@ const selectTopSummaries = (results) => {
 
 function mostCommonTerms(allResults) {
   const termCount = {};
-
+  
   for (const [term, articles] of Object.entries(allResults)) {
     termCount[term] = articles.length;
+  }
+  
+  const totalArticles = Object.values(allResults).flat().length;
+  
+  if (totalArticles === 1) {
+    return Object.keys(termCount)[0];
   }
 
   const sortedTerms = Object.entries(termCount).sort((a, b) => b[1] - a[1]);
   const highestFrequency = sortedTerms[0][1];
-  const topTerms = sortedTerms.filter(term => term[1] === highestFrequency).slice(0, 3).map(term => term[0]);
+  let topTerms = sortedTerms.filter(term => term[1] === highestFrequency);
+
+  const numOfTopics = Math.floor(Math.cbrt(totalArticles));
+
+  topTerms = topTerms.sort((a, b) => {
+    const aMaxScore = Math.max(...allResults[a[0]].map(article => article.score));
+    const bMaxScore = Math.max(...allResults[b[0]].map(article => article.score));
+    return bMaxScore - aMaxScore;
+  }).slice(0, numOfTopics).map(term => term[0]);
 
   return topTerms.join('/');
 }
