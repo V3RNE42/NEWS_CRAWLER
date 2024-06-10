@@ -167,14 +167,17 @@ const loadResults = () => {
 };
 
 const selectTopSummaries = (results) => {
+  results = Object.values(results).flat();
+
   results.sort((a, b) => b.score - a.score);
+
   let top = [];
   let numOfTopArticles = Math.floor(Math.sqrt(results.length));
-  
+
   for (let index = 0; index < numOfTopArticles; index++) {
     top.push(results.shift());
   }
-  
+
   return top;
 };
 
@@ -282,7 +285,7 @@ const main = async () => {
     console.log("Edita el archivo 'config.json' y cambia 'time.email' a una hora posterior a 'time.crawl' - No olvides reiniciar el servidor" + Date.now()) + "\n\n\n";
     await new Promise((r) => setTimeout(r, 60000));
   }
-  const results = await crawlWebsites();
+  let results = await crawlWebsites();
   await saveResults(results);
   await sendEmail();
 };
