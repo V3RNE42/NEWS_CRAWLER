@@ -21,7 +21,7 @@ const summarizeText = async (link) => {
       model: "gpt-4",
       messages: [{ role: "user", content: link }],
       stream: true,
-      max_tokens: 350,
+      max_tokens: 250,
       temperature: 0.1,
       top_p: 0.1,
       frequency_penalty: 0.0,
@@ -176,22 +176,24 @@ const loadResults = () => {
 };
 
 const selectTopSummaries = (results) => {
-  // Flatten all articles into a single array
   const allArticles = Object.values(results).flat();
-
-  // Sort articles based on score
-  allArticles.sort((a, b) => b.score - a.score);
-
-  let top = [];
   let numOfTopArticles = Math.floor(Math.sqrt(allArticles.length));
 
-  // Select the top articles and remove them from the original array
-  for (let index = 0; index < numOfTopArticles; index++) {
-    top.push(allArticles.shift());
-  }
+  allArticles.sort((a, b) => b.score - a.score);
 
-  // Return both top articles and remaining results
-  return { top, remainingResults: allArticles };
+  const topArticles = allArticles.slice(0, numOfTopArticles);
+
+  const remainingResults = allArticles.slice(numOfTopArticles);
+
+  const remainingResultsByTerms = {};
+  remainingResults.forEach(article => {
+    if (!remainingResultsByTerms[article.term]) {
+      remainingResultsByTerms[article.term] = [];
+    }
+    remainingResultsByTerms[article.term].push(article);
+  });
+
+  return { topArticles, remainingResults: remainingResultsByTerms };
 };
 
 function mostCommonTerms(allResults) {
@@ -234,7 +236,7 @@ const sendEmail = async () => {
   const results = loadResults();
   const sender = config.email.sender;
   const recipients = config.email.recipients;
-  const totalLinks = Object.values(results).flat().length;
+  const totalLinks = Object.values(results.topArticles).flat().length + Object.values(results.remainingResults).flat().length;
   const sortedResults = Object.entries(results).filter(([key]) => key !== 'topArticles' && key !== 'mostCommonTerm').sort(
     (a, b) => b[1].length - a[1].length
   );
@@ -242,7 +244,7 @@ const sendEmail = async () => {
   const subject = `Noticias Frescas ${todayDate()} - ${mostFrequentTerm}`;
   const topArticles = results.topArticles;
 
-  let emailBody = `Estas son las ${totalLinks} noticias frescas de hoy ${todayDate()} :<br>`;
+  let emailBody = `Estas son las ${totalLinks} noticias frescas de ${todayDate()} :<br><br>`;
   if (topArticles.length) {
     emailBody += "Noticias Relevantes:<br><br>";
     topArticles.forEach((article) => {
