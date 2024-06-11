@@ -1,7 +1,7 @@
 const nodemailer = require("nodemailer");
 const fs = require("fs");
 const path = require("path");
-const cheerio = require('cheerio'); 
+const cheerio = require('cheerio');
 const schedule = require("node-cron");
 const { terms, websites } = require("./terminos");
 const config = require("./config.json");
@@ -40,12 +40,11 @@ const summarizeText = async (link) => {
 
 const isRecent = (dateText) => {
   const today = new Date();
-  const todayStr = `${
-    today.getMonth() + 1
-  }/${today.getDate()}/${today.getFullYear()}`;
+  const todayStr = `${today.getMonth() + 1
+    }/${today.getDate()}/${today.getFullYear()}`;
 
   return (
-    ["hours ago","hour ago","minutes ago","minute ago","just now","hora","horas","minuto","minutos","segundos","justo ahora",]
+    ["hours ago", "hour ago", "minutes ago", "minute ago", "just now", "hora", "horas", "minuto", "minutos", "segundos", "justo ahora",]
       .some((keyword) => dateText.toLowerCase().includes(keyword)) ||
     dateText.includes(todayStr)
   );
@@ -78,7 +77,7 @@ function searchTermInText(text, term) {
   return regex.test(text);
 }
 
-const relevanceScore = (text) => terms.filter((term) => searchTermInText(text, term) ).length;
+const relevanceScore = (text) => terms.filter((term) => searchTermInText(text, term)).length;
 
 const crawlWebsite = async (url, terms) => {
   const results = {};
@@ -127,7 +126,7 @@ const crawlWebsites = async () => {
 
   for (const url of websites) {
     console.log(`Crawling ${url}...`);
-    await new Promise((r) => setTimeout(r, (550 +  Math.floor(Math.random() * 600))));
+    await new Promise((r) => setTimeout(r, (550 + Math.floor(Math.random() * 600))));
     try {
       const results = await crawlWebsite(url, terms);
       for (const [term, articles] of Object.entries(results)) {
@@ -139,7 +138,7 @@ const crawlWebsites = async () => {
           }
         }
       }
-      await new Promise((r) => setTimeout(r, (1000 +  Math.floor(Math.random() * 250))));
+      await new Promise((r) => setTimeout(r, (1000 + Math.floor(Math.random() * 250))));
     } catch (error) {
       console.error(`Error crawling ${url}: ${error}`);
     }
@@ -153,12 +152,12 @@ const saveResults = async (results) => {
   const mostCommonTerm = mostCommonTerms(results);
 
   // Select the top articles and get remaining results
-  const { top: topArticles, remainingResults } = selectTopSummaries(results);
+  const { top: topArticles, remainingResults } = extractTopArticles(results);
 
   // Ensure summaries are generated for all top articles
-  await Promise.all(topArticles.map(async (article) => {
-    article.summary = await summarizeText(article.link);
-  }));
+  for (let i = 0; i < topArticles.length; i++) {
+    topArticles[i].summary = await summarizeText(topArticles[i].link);    
+  }
 
   // Reconstruct the results object
   const resultsWithTop = { remainingResults, topArticles, mostCommonTerm };
@@ -172,14 +171,14 @@ const loadResults = () => {
   return JSON.parse(fs.readFileSync(resultsPath));
 };
 
-const selectTopSummaries = (results) => {
+const extractTopArticles = (results) => {
   const allArticles = Object.values(results).flat();
   let numOfTopArticles = Math.floor(Math.sqrt(allArticles.length));
 
   allArticles.sort((a, b) => b.score - a.score);
 
   let topArticles = [], remainingResults = [];
-  
+
   topArticles.push(...allArticles.slice(0, numOfTopArticles));
   remainingResults.push(...allArticles.slice(numOfTopArticles));
 
@@ -197,13 +196,13 @@ const selectTopSummaries = (results) => {
 
 function mostCommonTerms(allResults) {
   const termCount = {};
-  
+
   for (const [term, articles] of Object.entries(allResults)) {
     termCount[term] = articles.length;
   }
-  
+
   const totalArticles = Object.values(allResults).flat().length;
-  
+
   if (totalArticles === 1) {
     return Object.keys(termCount)[0];
   }
@@ -252,6 +251,8 @@ const sendEmail = async () => {
   } else {
     emailBody += `<b>NO encontré noticias relevantes hoy</b>`;
   }
+
+  emailBody += "<br>"
 
   sortedResults.forEach(([term, articles]) => {
     if (articles.length) {
