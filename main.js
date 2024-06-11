@@ -90,10 +90,7 @@ const crawlWebsite = async (url, terms) => {
     if (!pageContent) continue;
 
     const $ = cheerio.load(pageContent);
-    const articleElements = $("li.b_algo");
-
-    for (let i = 0; i < articleElements.length; i++) {
-      const article = articleElements[i];
+    $("li.b_algo").each(async (i, article) => {
       const titleElement = $(article).find("h2");
       const linkElement = titleElement.find("a");
       const dateElement = $(article).find("span.news_dt");
@@ -103,7 +100,7 @@ const crawlWebsite = async (url, terms) => {
         const link = linkElement.attr("href");
         const dateText = dateElement.text();
 
-        if (link === url) continue;
+        if (link === url) return;
 
         if (isRecent(dateText)) {
           let articleContent = await fetchPage(link);
@@ -114,9 +111,9 @@ const crawlWebsite = async (url, terms) => {
           }
         }
       }
-    }
+    });
+    await new Promise((r) => setTimeout(r, (350 + Math.floor(Math.random() * 600))));
   }
-
   return results;
 };
 
