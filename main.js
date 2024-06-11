@@ -161,7 +161,7 @@ const saveResults = async (results) => {
   }));
 
   // Reconstruct the results object
-  const resultsWithTop = { ...remainingResults, topArticles, mostCommonTerm };
+  const resultsWithTop = { remainingResults, topArticles, mostCommonTerm };
 
   fs.writeFileSync(resultsPath, JSON.stringify(resultsWithTop, null, 2));
   fs.writeFileSync(flagPath, "Crawling complete");
