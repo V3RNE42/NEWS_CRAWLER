@@ -90,36 +90,33 @@ const crawlWebsite = async (url, terms) => {
     if (!pageContent) continue;
 
     const $ = cheerio.load(pageContent);
-    const articlePromises = [];
+    const articleElements = $("li.b_algo");
 
-    $("li.b_algo").each((i, article) => {
-      articlePromises.push((async () => {
-        const titleElement = $(article).find("h2");
-        const linkElement = titleElement.find("a");
-        const dateElement = $(article).find("span.news_dt");
+    for (let i = 0; i < articleElements.length; i++) {
+      const article = articleElements[i];
+      const titleElement = $(article).find("h2");
+      const linkElement = titleElement.find("a");
+      const dateElement = $(article).find("span.news_dt");
 
-        if (titleElement && linkElement && dateElement) {
-          const title = titleElement.text();
-          const link = linkElement.attr("href");
-          const dateText = dateElement.text();
+      if (titleElement && linkElement && dateElement) {
+        const title = titleElement.text();
+        const link = linkElement.attr("href");
+        const dateText = dateElement.text();
 
-          if (link === url) return;
+        if (link === url) continue;
 
-          if (isRecent(dateText)) {
-            let articleContent = await fetchPage(link);
-            let score = relevanceScore(articleContent);
-            if (score > 0) {
-              const summary = "placeholder";
-              results[term].push({ title, link, summary, score, term });
-            }
+        if (isRecent(dateText)) {
+          let articleContent = await fetchPage(link);
+          let score = relevanceScore(articleContent);
+          if (score > 0) {
+            const summary = "placeholder";
+            results[term].push({ title, link, summary, score, term });
           }
         }
-      })());
-    });
-
-    await Promise.all(articlePromises);
-    await new Promise((r) => setTimeout(r, (350 + Math.floor(Math.random() * 600))));
+      }
+    }
   }
+
   return results;
 };
 
