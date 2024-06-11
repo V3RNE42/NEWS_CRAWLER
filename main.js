@@ -18,22 +18,22 @@ const summarizeText = async (link) => {
   link = `Hazme un resumen de la siguiente noticia:\n\n${link}`;
   try {
     const response = await openai.chat.completions.create({
-        model: "gpt-4",
-        messages: [{ role: "user", content: link }],
-        stream: true,
-        max_tokens: 350,
-        temperature: 0.1,
-        top_p: 0.1,
-        frequency_penalty: 0.0,
-        presence_penalty: 0.0,
+      model: "gpt-4",
+      messages: [{ role: "user", content: link }],
+      stream: true,
+      max_tokens: 250,
+      temperature: 0.1,
+      top_p: 0.1,
+      frequency_penalty: 0.0,
+      presence_penalty: 0.0,
     });
     let respuesta = "";
     for await (const chunk of response) {
-        respuesta += chunk.choices[0]?.delta?.content || "";
+      respuesta += chunk.choices[0]?.delta?.content || "";
     }
     return respuesta;
   } catch (error) {
-    console.error(`Error resumiendo: ${error}`);
+    console.error(`Error resumiendo el artículo: ${link}`, error);
     return "No se pudo generar un resumen";
   }
 };
@@ -90,7 +90,10 @@ const crawlWebsite = async (url, terms) => {
     if (!pageContent) continue;
 
     const $ = cheerio.load(pageContent);
-    $("li.b_algo").each(async (i, article) => {
+    const articleElements = $("li.b_algo");
+
+    for (let i = 0; i < articleElements.length; i++) {
+      const article = articleElements[i];
       const titleElement = $(article).find("h2");
       const linkElement = titleElement.find("a");
       const dateElement = $(article).find("span.news_dt");
@@ -100,7 +103,7 @@ const crawlWebsite = async (url, terms) => {
         const link = linkElement.attr("href");
         const dateText = dateElement.text();
 
-        if (link === url) return;
+        if (link === url) continue;
 
         if (isRecent(dateText)) {
           let articleContent = await fetchPage(link);
@@ -111,9 +114,9 @@ const crawlWebsite = async (url, terms) => {
           }
         }
       }
-    });
-    await new Promise((r) => setTimeout(r, (350 + Math.floor(Math.random() * 600))));
+    }
   }
+
   return results;
 };
 
@@ -130,7 +133,7 @@ const crawlWebsites = async () => {
       for (const [term, articles] of Object.entries(results)) {
         for (const art of articles) {
           if (!seenLinks.has(art.link)) {
-            console.log("Anadido nuevo artículo: " + art.title + " con enlace: " + art.link);
+            console.log("Añadido nuevo artículo: " + art.title + " con enlace: " + art.link);
             seenLinks.add(art.link);
             allResults[term].push(art);
           }
@@ -149,13 +152,16 @@ const saveResults = async (results) => {
   const flagPath = path.join(__dirname, "crawl_complete.flag");
   const mostCommonTerm = mostCommonTerms(results);
 
-  const topArticles = selectTopSummaries(results);
+  // Select the top articles and get remaining results
+  const { top: topArticles, remainingResults } = selectTopSummaries(results);
 
-  for (let i = 0; i < topArticles.length; i++) {
-    topArticles[i].summary = await summarizeText(topArticles[i].link);    
-  }
+  // Ensure summaries are generated for all top articles
+  await Promise.all(topArticles.map(async (article) => {
+    article.summary = await summarizeText(article.link);
+  }));
 
-  const resultsWithTop = { ...results, topArticles, mostCommonTerm };
+  // Reconstruct the results object
+  const resultsWithTop = { ...remainingResults, topArticles, mostCommonTerm };
 
   fs.writeFileSync(resultsPath, JSON.stringify(resultsWithTop, null, 2));
   fs.writeFileSync(flagPath, "Crawling complete");
@@ -167,16 +173,27 @@ const loadResults = () => {
 };
 
 const selectTopSummaries = (results) => {
-  results.sort((a, b) => b.score - a.score);
-  let top = [];
-  let numOfTopArticles = Math.floor(Math.sqrt(results.length));
+  const allArticles = Object.values(results).flat();
+  let numOfTopArticles = Math.floor(Math.sqrt(allArticles.length));
+
+  allArticles.sort((a, b) => b.score - a.score);
+
+  let topArticles = [], remainingResults = [];
   
-  for (let index = 0; index < numOfTopArticles; index++) {
-    top.push(results.shift());
-  }
-  
-  return top;
+  topArticles.push(...allArticles.slice(0, numOfTopArticles));
+  remainingResults.push(...allArticles.slice(numOfTopArticles));
+
+  const remainingResultsByTerms = {};
+  remainingResults.forEach(article => {
+    if (!remainingResultsByTerms[article.term]) {
+      remainingResultsByTerms[article.term] = [];
+    }
+    remainingResultsByTerms[article.term].push(article);
+  });
+
+  return { topArticles, remainingResults: remainingResultsByTerms };
 };
+
 
 function mostCommonTerms(allResults) {
   const termCount = {};
@@ -218,15 +235,15 @@ const sendEmail = async () => {
   const results = loadResults();
   const sender = config.email.sender;
   const recipients = config.email.recipients;
-  const totalLinks = Object.values(results).flat().length;
-  const sortedResults = Object.entries(results).sort(
+  const totalLinks = results.topArticles.length + Object.values(results.remainingResults).flat().length;
+  const sortedResults = Object.entries(results.remainingResults).sort(
     (a, b) => b[1].length - a[1].length
   );
   const mostFrequentTerm = results.mostCommonTerm;
   const subject = `Noticias Frescas ${todayDate()} - ${mostFrequentTerm}`;
   const topArticles = results.topArticles;
 
-  let emailBody = `Estas son las ${totalLinks} noticias frescas de hoy ${todayDate()} :<br>`;
+  let emailBody = `Estas son las ${totalLinks} noticias frescas de ${todayDate()} :<br><br>`;
   if (topArticles.length) {
     emailBody += "Noticias Relevantes:<br><br>";
     topArticles.forEach((article) => {
