@@ -6,16 +6,88 @@ const schedule = require("node-cron");
 const { terms, websites } = require("./terminos");
 const config = require("./config.json");
 const { OpenAI, Configuration } = require("openai");
+const { JSDOM } = require('jsdom');
 
 const openai = new OpenAI({ apiKey: config.openai.api_key });
 
 const todayDate = () => new Date().toISOString().split("T")[0];
 
+async function extractArticleText(url) {
+  const fetch = (await import('node-fetch')).default;
+  const response = await fetch(url);
+  const html = await response.text();
+  const dom = new JSDOM(html);
+  const document = dom.window.document;
+  const mainSelectors = [
+    'article',
+    'main',
+    'section',
+    '.article-body',
+    '.content',
+    '.main-content',
+    '.entry-content',
+    '.post-content',
+    '.story-body',
+    '.news-article'
+  ];
+  let mainElement = null;
+  for (let selector of mainSelectors) {
+    mainElement = document.querySelector(selector);
+    if (mainElement) break;
+  }
+  if (!mainElement) {
+    console.error('Main content not found');
+    return '';
+  }
+  function getTextFromElement(element) {
+    if (element.nodeType === dom.window.Node.TEXT_NODE) {
+      return element.nodeValue.trim();
+    }
+    if (element.nodeType === dom.window.Node.ELEMENT_NODE) {
+      let text = '';
+      for (let child of element.childNodes) {
+        text += ' ' + getTextFromElement(child);
+      }
+      return text.trim();
+    }
+    return '';
+  }
+  let articleText = getTextFromElement(mainElement);
+  articleText = cleanText(articleText);
+  return articleText;
+}
+
+function cleanText(text) {
+  const farewellMessages = [
+    "Sigue toda la información de",
+    "El análisis de la actualidad económica",
+    "Apúntate",
+    "Lo más visto",
+    "Buscar bolsas y mercados",
+    "window._taboola",
+    "Sección de comentarios",
+    "Únete a la conversación",
+    "COMPARTIR",
+    "COMENTARIOS",
+    "Comparte esta noticia en tus redes",
+    "Comenta esta noticia"
+  ];
+  for (let message of farewellMessages) {
+    const index = text.indexOf(message);
+    if (index !== -1) {
+      text = text.substring(0, index).trim();
+      break; 
+    }
+  }
+  return text;
+}
+
 /** Returns a summary of the content of the given link.
  *  @param {string} link 
  *  @returns {string}    */
 const summarizeText = async (link, numberOfLinks) => {
-  link = `Haz un resumen de la siguiente noticia:\n\n${link}`;
+  link = await extractArticleText(link);
+  link = `Haz un resumen de la siguiente noticia:\n\n\n\n${link}`;
   let maxTokens = 150 + Math.ceil(300/numberOfLinks);
   try {
     const response = await openai.chat.completions.create({
