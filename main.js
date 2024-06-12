@@ -310,7 +310,7 @@ const sendEmail = async () => {
       emailBody += `<b>${term.toUpperCase()} - ${articles.length} link${articles.length === 1 ? "" : "s"}</b><br>`;
       articles.forEach((article) => {
         let isTopArticle = topArticleLinks.includes(article.link);
-        emailBody += `<a href="${article.link}" style="color: ${isTopArticle ? "red" : "black"};">${article.title}</a><br>`;
+        emailBody += `<a href="${article.link}" style="color: ${isTopArticle ? "red" : "blue"};">${article.title}</a><br>`;
       });
       emailBody += "<br><br>";
     }
