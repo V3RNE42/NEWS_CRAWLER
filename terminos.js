@@ -1,6 +1,10 @@
 module.exports = {
     terms: [
     "Guerra híbrida",
+    "activo de reserva",
+    "peak oil",
+    "pico petrolero",
+    "pico del petróleo",
     "Ciberseguridad",
     "Inteligencia militar",
     "Contrainsurgencia",
