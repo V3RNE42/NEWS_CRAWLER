@@ -14,14 +14,15 @@ const todayDate = () => new Date().toISOString().split("T")[0];
 /** Returns a summary of the content of the given link.
  *  @param {string} link 
  *  @returns {string}    */
-const summarizeText = async (link) => {
-  link = `Hazme un resumen de la siguiente noticia:\n\n${link}`;
+const summarizeText = async (link, numberOfLinks) => {
+  link = `Haz un resumen de la siguiente noticia:\n\n${link}`;
+  let maxTokens = 150 + Math.ceil(300/numberOfLinks);
   try {
     const response = await openai.chat.completions.create({
       model: "gpt-4",
       messages: [{ role: "user", content: link }],
       stream: true,
-      max_tokens: 250,
+      max_tokens: maxTokens,
       temperature: 0.1,
       top_p: 0.1,
       frequency_penalty: 0.0,
@@ -38,6 +39,11 @@ const summarizeText = async (link) => {
   }
 };
 
+/**
+ * Checks if a given date text is recent based on the current date.
+ *
+ * @param {string} dateText - The date text to check.
+ * @return {boolean} Returns true if the date text is recent, false otherwise.  */
 const isRecent = (dateText) => {
   const today = new Date();
   const todayStr = `${today.getMonth() + 1
@@ -50,6 +56,12 @@ const isRecent = (dateText) => {
   );
 };
 
+/**
+ * Asynchronously fetches a page from a specified URL with retry logic.
+ *
+ * @param {string} url - The URL to fetch the page from.
+ * @param {number} retries - The number of retry attempts (default is 3).
+ * @return {Promise<string>} A promise that resolves with the text content of the fetched page. */
 const fetchPage = async (url, retries = 3) => {
   for (let i = 0; i < retries; i++) {
     try {
@@ -77,8 +89,18 @@ function searchTermInText(text, term) {
   return regex.test(text);
 }
 
+/** Calculates the relevance score of a text based on the search terms.
+ * @param {string} text - The text to calculate the relevance score for.
+ * @returns {number} - The relevance score. */
 const relevanceScore = (text) => terms.filter((term) => searchTermInText(text, term)).length;
 
+/**
+ * Crawls a website for articles related to a list of search terms.
+ *
+ * @param {string} url - The URL of the website to crawl.
+ * @param {Array<string>} terms - The list of search terms to search for.
+ * @return {Promise<Object>} An object containing the results of crawling the website, 
+ * where the keys are the search terms and the values are arrays of articles.         */
 const crawlWebsite = async (url, terms) => {
   const results = {};
 
@@ -119,6 +141,11 @@ const crawlWebsite = async (url, terms) => {
   return results;
 };
 
+/**
+ * Crawls a list of websites for articles related to a list of search terms.
+ *
+ * @return {Promise<Object>} An object containing the results of crawling the websites, 
+ * where the keys are the search terms and the values are arrays of articles.       */
 const crawlWebsites = async () => {
   const allResults = {};
   const seenLinks = new Set();
@@ -146,54 +173,72 @@ const crawlWebsites = async () => {
   return allResults;
 };
 
+/**
+ * Asynchronously saves the results to files, generates summaries for top articles, and writes the results and metadata to JSON files.
+ *
+ * @param {Object} results - The results object to be saved.
+ * @return {void} This function does not return a value.      */
 const saveResults = async (results) => {
   const resultsPath = path.join(__dirname, "crawled_results.json");
   const flagPath = path.join(__dirname, "crawl_complete.flag");
   const mostCommonTerm = mostCommonTerms(results);
 
-  // Select the top articles and get remaining results
-  const { top: topArticles, remainingResults } = extractTopArticles(results);
+  let topArticles = extractTopArticles(results);
+  let numTopArticles = topArticles.length;
 
   // Ensure summaries are generated for all top articles
-  for (let i = 0; i < topArticles.length; i++) {
-    topArticles[i].summary = await summarizeText(topArticles[i].link);    
-  }
+  for (let i = 0; i < numTopArticles; i++) {
+    topArticles[i].summary = await summarizeText(topArticles[i].link, numTopArticles);
+  };
 
-  // Reconstruct the results object
-  const resultsWithTop = { remainingResults, topArticles, mostCommonTerm };
+  const resultsWithTop = { results, topArticles, mostCommonTerm };
 
   fs.writeFileSync(resultsPath, JSON.stringify(resultsWithTop, null, 2));
   fs.writeFileSync(flagPath, "Crawling complete");
 };
 
+/**
+ * Loads the results from the "crawled_results.json" file and returns them as a parsed JSON object.
+ *
+ * @return {Object} The parsed JSON object containing the results.    */
 const loadResults = () => {
   const resultsPath = path.join(__dirname, "crawled_results.json");
   return JSON.parse(fs.readFileSync(resultsPath));
 };
 
+/**
+ * Extracts the top articles from the given results based on their scores.
+ *
+ * @param {Object} results - The results object containing articles.
+ * @return {Array} The top articles with the highest scores.              */
 const extractTopArticles = (results) => {
-  const allArticles = Object.values(results).flat();
-  let numOfTopArticles = Math.floor(Math.sqrt(allArticles.length));
-
+  let allArticles = [];
+  for (let articles of Object.values(results)) {
+    allArticles.push(...articles);
+  }
   allArticles.sort((a, b) => b.score - a.score);
 
-  let topArticles = [], remainingResults = [];
+  let potentialReturn = allArticles.slice(0, Math.floor(Math.sqrt(allArticles.length)));
 
-  topArticles.push(...allArticles.slice(0, numOfTopArticles));
-  remainingResults.push(...allArticles.slice(numOfTopArticles));
-
-  const remainingResultsByTerms = {};
-  remainingResults.forEach(article => {
-    if (!remainingResultsByTerms[article.term]) {
-      remainingResultsByTerms[article.term] = [];
-    }
-    remainingResultsByTerms[article.term].push(article);
-  });
-
-  return { topArticles, remainingResults: remainingResultsByTerms };
+  let totalScore = 0;
+  for (let i = 0; i < allArticles.length; i++) totalScore += allArticles[i].score;
+  let threshold = Math.floor(totalScore * 0.25);
+  //extract the top articles whose total sum of scoreS is at least 25% of total score
+  let topArticles = [];
+  while (allArticles.length > 0 && threshold > 0) {
+    threshold -= allArticles[0].score;
+    topArticles.push(allArticles.shift());
+  }
+  
+  return potentialReturn.length > topArticles.length ? potentialReturn : topArticles;
 };
 
-
+/**
+ * Finds the most common terms in the given results object, 
+ * based on the frequency of articles and their maximum scores.
+ *
+ * @param {Object} allResults - The results object containing the articles.
+ * @return {string} - The most common terms separated by a forward slash.   */
 function mostCommonTerms(allResults) {
   const termCount = {};
 
@@ -222,6 +267,10 @@ function mostCommonTerms(allResults) {
   return topTerms.join('/');
 }
 
+/**
+ * Sends an email with the results of web crawling, including top articles and most frequent terms.
+ *
+ * @return {void} This function does not return a value.  */
 const sendEmail = async () => {
   const emailTime = new Date();
   const [emailHour, emailMinute] = config.time.email.split(":");
@@ -234,19 +283,21 @@ const sendEmail = async () => {
   const results = loadResults();
   const sender = config.email.sender;
   const recipients = config.email.recipients;
-  const totalLinks = results.topArticles.length + Object.values(results.remainingResults).flat().length;
-  const sortedResults = Object.entries(results.remainingResults).sort(
+  const totalLinks = Object.values(results.results).flat().length;
+  const sortedResults = Object.entries(results.results).sort(
     (a, b) => b[1].length - a[1].length
   );
   const mostFrequentTerm = results.mostCommonTerm;
   const subject = `Noticias Frescas ${todayDate()} - ${mostFrequentTerm}`;
-  const topArticles = results.topArticles;
+  let topArticles = results.topArticles;
+  let topArticleLinks = [];
 
   let emailBody = `Estas son las ${totalLinks} noticias frescas de ${todayDate()} :<br><br>`;
   if (topArticles.length) {
-    emailBody += "Noticias Relevantes:<br><br>";
+    emailBody += "Noticias Destacadas:<br><br>";
     topArticles.forEach((article) => {
       emailBody += `<a href="${article.link}">${article.title}</a><br>${article.summary}<br><br>`;
+      topArticleLinks.push(article.link);
     });
   } else {
     emailBody += `<b>NO encontré noticias relevantes hoy</b>`;
@@ -258,7 +309,8 @@ const sendEmail = async () => {
     if (articles.length) {
       emailBody += `<b>${term.toUpperCase()} - ${articles.length} link${articles.length === 1 ? "" : "s"}</b><br>`;
       articles.forEach((article) => {
-        emailBody += `<a href="${article.link}">${article.title}</a><br>`;
+        let isTopArticle = topArticleLinks.includes(article.link);
+        emailBody += `<a href="${article.link}" style="color: ${isTopArticle ? "red" : "black"};">${article.title}</a><br>`;
       });
       emailBody += "<br><br>";
     }
@@ -295,6 +347,11 @@ const sendEmail = async () => {
   }
 };
 
+/**
+ * Schedules the web crawler to run at the specified time and sends emails with the results.
+ *
+ * @param {Object} config - The configuration object containing the crawling and email times.
+ * @returns {void} This function does not return a value.       */
 const main = async () => {
   while (config.time.crawl >= config.time.email) {
     console.log("Edita el archivo 'config.json' y cambia 'time.email' a una hora posterior a 'time.crawl' - No olvides reiniciar el servidor" + Date.now()) + "\n\n\n";
