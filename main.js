@@ -12,6 +12,11 @@ const openai = new OpenAI({ apiKey: config.openai.api_key });
 
 const todayDate = () => new Date().toISOString().split("T")[0];
 
+/**
+ * Extracts the main text content from the provided URL.
+ *
+ * @param {string} url - The URL from which to extract the main text content.
+ * @return {string} The extracted main text content.      */
 async function extractArticleText(url) {
   const fetch = (await import('node-fetch')).default;
   const response = await fetch(url);
@@ -39,6 +44,11 @@ async function extractArticleText(url) {
     console.error('Main content not found');
     return '';
   }
+
+  /** Recursively extracts the text content from an HTML element and its child elements.
+   *
+   * @param {Node} element - The HTML element from which to extract the text content.
+   * @return {string} The extracted text content.     */
   function getTextFromElement(element) {
     if (element.nodeType === dom.window.Node.TEXT_NODE) {
       return element.nodeValue.trim();
@@ -57,6 +67,11 @@ async function extractArticleText(url) {
   return articleText;
 }
 
+/**
+ * Cleans the given text by removing any farewell messages and trimming any leading or trailing whitespace.
+ *
+ * @param {string} text - The text to be cleaned.
+ * @return {string} The cleaned text.       */
 function cleanText(text) {
   const farewellMessages = [
     "Sigue toda la información de",
@@ -82,12 +97,12 @@ function cleanText(text) {
   return text;
 }
 
-/** Returns a summary of the content of the given link.
+/** Returns a summary of the pertinent content of the given link.
  *  @param {string} link 
  *  @returns {string}    */
-const summarizeText = async (link, numberOfLinks) => {
+const summarizeText = async (link, numberOfLinks, title) => {
   link = await extractArticleText(link);
-  link = `Haz un resumen de la siguiente noticia:\n\n\n\n${link}`;
+  link = `Haz un resumen de la siguiente noticia:\n\n\n\n${link}\n\n\n\nIgnora todo texto que no tenga que ver con el titular de la noticia: ${title}`;
   let maxTokens = 150 + Math.ceil(300/numberOfLinks);
   try {
     const response = await openai.chat.completions.create({
@@ -199,7 +214,7 @@ const crawlWebsite = async (url, terms) => {
         if (link === url) continue;
 
         if (isRecent(dateText)) {
-          let articleContent = await fetchPage(link);
+          let articleContent = await extractArticleText(link);
           let score = relevanceScore(articleContent);
           if (score > 0) {
             const summary = "placeholder";
@@ -260,7 +275,7 @@ const saveResults = async (results) => {
 
   // Ensure summaries are generated for all top articles
   for (let i = 0; i < numTopArticles; i++) {
-    topArticles[i].summary = await summarizeText(topArticles[i].link, numTopArticles);
+    topArticles[i].summary = await summarizeText(topArticles[i].link, numTopArticles, topArticles[i].title);
   };
 
   const resultsWithTop = { results, topArticles, mostCommonTerm };
