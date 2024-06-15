@@ -508,4 +508,7 @@ schedule.schedule(crawlInterval, () => {
     .catch(error => console.error('Error in webcrawler:', error, '\n\n\n'));
 });
 
-console.log(`Webcrawler scheduled to run at intervals and emails to be sent after ${maxCycles} cycles.`);
+const emailStartTimeStr = `${emailStartTime.hour}:${emailStartTime.minute.toString().padStart(2, '0')}`;
+const emailEndTimeStr = `${emailEndTime.hour}:${emailEndTime.minute.toString().padStart(2, '0')}`;
+
+console.log(`Webcrawler scheduled to run at intervals of every ${24 / maxCycles} hours. Emails will be sent after ${maxCycles} cycles or within the time bracket from ${emailStartTimeStr} to ${emailEndTimeStr}.`);
