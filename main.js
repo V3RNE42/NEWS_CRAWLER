@@ -12,6 +12,7 @@ const config = require("./config.json");
 // # CONFIGURATION
 const openai = new OpenAI({ apiKey: config.openai.api_key });
 const maxCycles = config.cycles_per_day;
+const crawlInterval = calculateCrawlInterval(config.cycles_per_day);
 
 const parseTime = (timeStr) => {
   const [hour, minute] = timeStr.split(":").map(Number);
@@ -148,7 +149,7 @@ const isRecent = (dateText) => {
   const todayStr = `${today.getMonth() + 1}/${today.getDate()}/${today.getFullYear()}`;
 
   return (
-    ["hours ago", "hour ago", "minutes ago", "minute ago", "just now", "hora", "horas", "minuto", "minutos", "segundos", "justo ahora",]
+    ["hours ago", "hour ago", "minutes ago", "minute ago", "just now", "hora", "horas", "minuto", "minutos", "segundos", "justo ahora"]
       .some((keyword) => dateText.toLowerCase().includes(keyword)) ||
     dateText.includes(todayStr)
   );
@@ -257,6 +258,11 @@ const crawlWebsites = async () => {
   for (const term of terms) allResults[term] = [];
 
   for (const url of websites) {
+    if (checkCloseToEmailBracketEnd(emailEndTime)) {
+      console.log("Stopping crawling to prepare for email sending.");
+      return allResults;
+    }
+
     console.log(`Crawling ${url}...`);
     await new Promise((r) => setTimeout(r, (550 + Math.floor(Math.random() * 600))));
     try {
@@ -274,6 +280,7 @@ const crawlWebsites = async () => {
   return allResults;
 };
 
+
 const saveResults = async (results, cycle) => {
   const resultsPath = path.join(__dirname, `crawled_results_${cycle}.json`);
   const flagPath = path.join(__dirname, "crawl_complete.flag");
@@ -281,10 +288,11 @@ const saveResults = async (results, cycle) => {
   let topArticles = extractTopArticles(results);
   let numTopArticles = topArticles.length;
 
-  // Ensure summaries are generated for all top articles
-  for (let i = 0; i < numTopArticles; i++) {
-    topArticles[i].summary = await summarizeText(topArticles[i].link, numTopArticles, topArticles[i].title);
-  };
+  if (cycleNumber === maxCycles || checkCloseToEmailBracketEnd(emailEndTime)) {
+    for (let i = 0; i < numTopArticles; i++) {
+      topArticles[i].summary = await summarizeText(topArticles[i].link, numTopArticles, topArticles[i].title);
+    };
+  }
 
   const resultsWithTop = { results, topArticles, mostCommonTerm: mostCommonTerms(results) };
 
@@ -317,14 +325,13 @@ const extractTopArticles = (results) => {
 
   let totalScore = 0;
   for (let i = 0; i < allArticles.length; i++) totalScore += allArticles[i].score;
-  let threshold = Math.floor(totalScore * 0.8);
-  // Extract the top articles whose total sum of scores is at least 80% of total score
+  let threshold = Math.floor(totalScore * 0.8); // Get top articles whose total is at least 80% of total score
   let topArticles = [];
   while (allArticles.length > 0 && threshold > 0) {
     threshold -= allArticles[0].score;
     topArticles.push(allArticles.shift());
   }
-
+  // get the smaller amount of topArticles within a sensible range
   return potentialReturn.length < topArticles.length ? potentialReturn : topArticles;
 };
 
@@ -356,13 +363,31 @@ function mostCommonTerms(allResults) {
   return topTerms.join('/');
 }
 
+const loadResults = () => {
+  let latestCycleTime = 0;
+  let latestResults = null;
+
+  for (let i = 1; i <= maxCycles; i++) {
+    const resultsPath = path.join(__dirname, `crawled_results_${i}.json`);
+    if (fs.existsSync(resultsPath)) {
+      const stats = fs.statSync(resultsPath);
+      if (stats.mtime > latestCycleTime) {
+        latestCycleTime = stats.mtime;
+        latestResults = JSON.parse(fs.readFileSync(resultsPath));
+      }
+    }
+  }
+
+  return latestResults;
+};
+
 const sendEmail = async () => {
   const emailTime = new Date();
   const [emailHour, emailMinute] = config.time.email.split(":");
   emailTime.setHours(emailHour, emailMinute, 0, 0);
 
   while (!fs.existsSync(path.join(__dirname, "crawl_complete.flag")) || emailTime.getTime() > Date.now()) {
-    await new Promise((r) => setTimeout(r, 90000));
+    await new Promise((r) => setTimeout(r, 60000));
   }
 
   const results = loadResults();
@@ -426,7 +451,10 @@ const sendEmail = async () => {
 
     fs.unlinkSync(path.join(__dirname, "crawl_complete.flag"));
     for (let i = 1; i <= maxCycles; i++) {
-      fs.unlinkSync(path.join(__dirname, `crawled_results_${i}.json`));
+      const resultsPath = path.join(__dirname, `crawled_results_${i}.json`);
+      if (fs.existsSync(resultsPath)) {
+        fs.unlinkSync(resultsPath);
+      }
     }
     console.log("Cleanup complete: Deleted flag and results files.");
   } catch (error) {
@@ -472,8 +500,6 @@ const main = async () => {
   }
 };
 
-const crawlInterval = calculateCrawlInterval(config.cycles_per_day);
-
 schedule.schedule(crawlInterval, () => {
   console.log(`Running the web crawler at ${new Date().toISOString()}...`);
   loadPreviousResults();
@@ -483,4 +509,3 @@ schedule.schedule(crawlInterval, () => {
 });
 
 console.log(`Webcrawler scheduled to run at intervals and emails to be sent after ${maxCycles} cycles.`);
-
