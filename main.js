@@ -39,7 +39,7 @@ async function extractArticleText(url) {
     args: ['--no-sandbox', '--disable-setuid-sandbox']
   });
   const page = await browser.newPage();
-  await page.goto(url, { waitUntil: 'domcontentloaded' });
+  await page.goto(url, { waitUntil:  ['domcontentloaded', 'networkidle2'] });
 
   const articleText = await page.evaluate(() => {
     const mainSelectors = [
