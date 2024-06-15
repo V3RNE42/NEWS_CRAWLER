@@ -136,6 +136,7 @@ module.exports = {
     "Búnkeres",
     "Think tank",
     "Megavatios",
+    "Gigavatios",
     "Oleoducto",
     "Gasoducto",
     "Litio",
