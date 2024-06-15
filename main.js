@@ -511,7 +511,7 @@ const crawlTime = new Date();
 const [crawlHour, crawlMinute] = config.time.crawl.split(":");
 crawlTime.setHours(crawlHour, crawlMinute, 0, 0);
 
-const canIGoNow = () => crawlTime.getTime() > Date.now();
+const canIGoNow = () => Date.now() >= crawlTime.getTime();
 
 const waitForCrawlTime = async () => {
   while (canIGoNow()) {
