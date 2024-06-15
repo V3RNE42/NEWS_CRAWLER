@@ -520,12 +520,15 @@ const waitForCrawlTime = async () => {
   }
 };
 
-waitForCrawlTime().then(() => {
+async function FirstCrawl() {
+  await waitForCrawlTime();
   console.log("Crawling for the first time");
   main()
     .then(() => console.log('Initial webcrawler run finished successfully\n\n\n'))
     .catch(error => console.error('Error in initial webcrawler run:', error, '\n\n\n'));
-});
+}
+
+await FirstCrawl();
 
 schedule.schedule(crawlInterval, () => {
   console.log(`Running the web crawler at ${new Date().toISOString()}...`);
