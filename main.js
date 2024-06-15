@@ -514,7 +514,7 @@ crawlTime.setHours(crawlHour, crawlMinute, 0, 0);
 const canIGoNow = () => Date.now() >= crawlTime.getTime();
 
 const waitForCrawlTime = async () => {
-  while (canIGoNow()) {
+  while (!canIGoNow()) {
     console.log("Waiting for crawl time...");
     await new Promise((r) => setTimeout(r, 60000));
   }
@@ -523,22 +523,25 @@ const waitForCrawlTime = async () => {
 async function FirstCrawl() {
   await waitForCrawlTime();
   console.log("Crawling for the first time");
-  main()
+  return main()
     .then(() => console.log('Initial webcrawler run finished successfully\n\n\n'))
     .catch(error => console.error('Error in initial webcrawler run:', error, '\n\n\n'));
 }
 
-await FirstCrawl();
+// Using IIFE to handle top-level await
+(async () => {
+  await FirstCrawl();
 
-schedule.schedule(crawlInterval, () => {
-  console.log(`Running the web crawler at ${new Date().toISOString()}...`);
-  loadPreviousResults();
-  main()
-    .then(() => console.log('Scheduled webcrawler run finished successfully\n\n\n'))
-    .catch(error => console.error('Error in scheduled webcrawler run:', error, '\n\n\n'));
-});
+  schedule.schedule(crawlInterval, () => {
+    console.log(`Running the web crawler at ${new Date().toISOString()}...`);
+    loadPreviousResults();
+    main()
+      .then(() => console.log('Scheduled webcrawler run finished successfully\n\n\n'))
+      .catch(error => console.error('Error in scheduled webcrawler run:', error, '\n\n\n'));
+  });
 
-const emailStartTimeStr = `${emailStartTime.hour}:${emailStartTime.minute.toString().padStart(2, '0')}`;
-const emailEndTimeStr = `${emailEndTime.hour}:${emailEndTime.minute.toString().padStart(2, '0')}`;
+  const emailStartTimeStr = `${emailStartTime.hour}:${emailStartTime.minute.toString().padStart(2, '0')}`;
+  const emailEndTimeStr = `${emailEndTime.hour}:${emailEndTime.minute.toString().padStart(2, '0')}`;
 
-console.log(`Webcrawler scheduled to run at intervals of every ${24 / maxCycles} hours. Emails will be sent after ${maxCycles} cycles or within the time bracket from ${emailStartTimeStr} to ${emailEndTimeStr}.`);
+  console.log(`Webcrawler scheduled to run at intervals of every ${24 / maxCycles} hours. Emails will be sent after ${maxCycles} cycles or within the time bracket from ${emailStartTimeStr} to ${emailEndTimeStr}.`);
+})();
