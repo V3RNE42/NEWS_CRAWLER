@@ -171,15 +171,33 @@ const fetchPage = async (url, retries = 3) => {
  * @param {string} term - The term to search for.
  * @returns {boolean} - Returns true if the term is found, otherwise false. */
 function searchTermInText(text, term) {
-  const escapedTerm = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const escapedTerm = term.replace(/[*+?^${}()|[\]\\]/g, '\\$&');
   const regex = new RegExp(`\\b${escapedTerm}\\b`, 'i');
   return regex.test(text);
 }
 
-/** Calculates the relevance score of a text based on the search terms.
- * @param {string} text - The text to calculate the relevance score for.
- * @returns {number} - The relevance score. */
-const relevanceScore = (text) => terms.filter((term) => searchTermInText(text, term)).length;
+/** Calculates the relevance score of a text based on the search terms,
+ *  and also finds the most common found term from 'terms'.
+ *  @param {string} text - The text to calculate the relevance score for.
+ *  @returns {Object} - An object containing the relevance score and the most common term  */
+const relevanceScoreAndMaxCommonFoundTerm = (text) => {
+  let score = 0, mostCommonTerm = "", maxCommonFoundTermCount = 0;
+
+  for (const term of terms) {
+    const regex = new RegExp("\\b" + term + "\\b", 'ig');
+    const matches = text.match(regex) || [];
+    const termCount = matches.length;
+    if (termCount > 0) {
+      score++;
+      if (termCount > maxCommonFoundTermCount) {
+        mostCommonTerm = term;
+        maxCommonFoundTermCount = termCount;
+      }
+    }
+  }
+
+  return { score, mostCommonTerm };
+};
 
 /**
  * Crawls a website for articles related to a list of search terms.
@@ -215,10 +233,10 @@ const crawlWebsite = async (url, terms) => {
 
         if (isRecent(dateText)) {
           let articleContent = await extractArticleText(link);
-          let score = relevanceScore(articleContent);
+          let {score, mostCommonTerm} = relevanceScoreAndMaxCommonFoundTerm(articleContent);
           if (score > 0) {
             const summary = "placeholder";
-            results[term].push({ title, link, summary, score, term });
+            results[mostCommonTerm].push({ title, link, summary, score, term: mostCommonTerm });
           }
         }
       }
