@@ -1,7 +1,7 @@
 {
     "email": {
-        "sender": "vatuviii@hotmail.com",
-        "recipients": ["juliocabanillas42@gmail.com"],
+        "sender": "sender@hotmail.com",
+        "recipients": ["receiver@gmail.com"],
         "smtp_server": "smtp.sendgrid.net",
         "smtp_port": 587,
         "smtp_user": "apikey",
