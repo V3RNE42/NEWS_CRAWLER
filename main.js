@@ -2,7 +2,6 @@ const nodemailer = require("nodemailer");
 const fs = require("fs");
 const path = require("path");
 const cheerio = require('cheerio');
-const schedule = require("node-cron");
 const { OpenAI } = require("openai");
 const puppeteer = require('puppeteer');
 const { terms, websites } = require("./terminos");
