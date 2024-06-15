@@ -125,6 +125,7 @@ const summarizeText = async (link, numberOfLinks, title) => {
         if (count == 0) {
             response = await getOpenAIResponse(text, title, maxTokens);
         } else if (count == 1) {
+            console.log("Article may be behind a PayWall...");
             text = await getProxiedContent(link);
             response = await getOpenAIResponse(text, title, maxTokens);
         } else {
