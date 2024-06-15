@@ -53,11 +53,7 @@ async function extractArticleText(url) {
 
 function cleanText(text) {
     const farewellMessages = [
-        "Sigue toda la información de",
-        "El análisis de la actualidad económica",
         "Apúntate",
-        "Lo más visto",
-        "Buscar bolsas y mercados",
         "window._taboola",
         "Sección de comentarios",
         "Únete a la conversación",
