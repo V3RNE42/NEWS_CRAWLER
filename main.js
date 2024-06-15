@@ -97,6 +97,7 @@ async function getOpenAIResponse(text, title, maxTokens) {
 
 async function getProxiedContent(link) {
     try {
+        console.log(`Let's go with the proxy for ${link} ...`);
         const browser = await puppeteer.launch();
         const page = await browser.newPage();
         await page.goto('https://12ft.io/', { waitUntil: 'domcontentloaded' });
@@ -235,6 +236,7 @@ const crawlWebsite = async (url, terms) => {
                         seenLinks.add(link);
                         const summary = "placeholder";
                         results[mostCommonTerm].push({ title, link, summary, score, term: mostCommonTerm });
+                        console.log(`Found article: ${title} - ${link}`);
                     }
                 }
             }
@@ -261,7 +263,7 @@ const crawlWebsites = async () => {
             for (const [term, articles] of Object.entries(results)) {
                 for (const art of articles) {
                     allResults[term].push(art);
-                    console.log(`Found article: ${art.title} (${art.link})`);
+                    console.log(`Added article: ${art.title} (${art.link})`);
                 }
             }
             await new Promise((r) => setTimeout(r, (1000 + Math.floor(Math.random() * 250))));
@@ -273,6 +275,7 @@ const crawlWebsites = async () => {
 };
 
 const saveResults = async (results) => {
+    console.log("Saving results...");
     const resultsPath = path.join(__dirname, `crawled_results.json`);
     const flagPath = path.join(__dirname, "crawl_complete.flag");
     let topArticles = [];
@@ -293,6 +296,7 @@ const saveResults = async (results) => {
     fs.writeFileSync(resultsPath, JSON.stringify(resultsWithTop, null, 2));
     if (thisIsTheTime) {
         fs.writeFileSync(flagPath, "Crawling complete");
+        console.log("Crawling complete!")
     }
 
     return thisIsTheTime;
@@ -316,6 +320,7 @@ const loadPreviousResults = () => {
 };
 
 const extractTopArticles = (results) => {
+    console.log("Extracting top articles...");
     let allArticles = [];
     for (let articles of Object.values(results)) {
         allArticles.push(...articles);
@@ -365,6 +370,7 @@ function mostCommonTerms(allResults) {
 }
 
 const loadResults = () => {
+    console.log("Loading results...");
     const resultsPath = path.join(__dirname, `crawled_results.json`);
     if (fs.existsSync(resultsPath)) {
         return JSON.parse(fs.readFileSync(resultsPath));
@@ -373,6 +379,7 @@ const loadResults = () => {
 };
 
 const sendEmail = async () => {
+    console.log("Sending emails...");
     const emailTime = new Date();
     const [emailHour, emailMinute] = config.time.email.split(":");
     emailTime.setHours(emailHour, emailMinute, 0, 0);
@@ -483,4 +490,3 @@ const main = async () => {
             .catch(error => console.error('Error in scheduled webcrawler run:', error, '\n\n\n'));
     };
 })();
-
