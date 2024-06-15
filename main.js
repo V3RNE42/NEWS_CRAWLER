@@ -309,6 +309,7 @@ const saveResults = async (results, cycle) => {
 };
 
 const loadPreviousResults = () => {
+  console.log("Loading previous results...");
   for (let i = 1; i < cycleNumber; i++) {
     const resultsPath = path.join(__dirname, `crawled_results_${i}.json`);
     if (fs.existsSync(resultsPath)) {
@@ -506,12 +507,32 @@ const main = async () => {
   }
 };
 
+const crawlTime = new Date();
+const [crawlHour, crawlMinute] = config.time.crawl.split(":");
+crawlTime.setHours(crawlHour, crawlMinute, 0, 0);
+
+const canIGoNow = () => crawlTime.getTime() > Date.now();
+
+const waitForCrawlTime = async () => {
+  while (canIGoNow()) {
+    console.log("Waiting for crawl time...");
+    await new Promise((r) => setTimeout(r, 60000));
+  }
+};
+
+waitForCrawlTime().then(() => {
+  console.log("Crawling for the first time");
+  main()
+    .then(() => console.log('Initial webcrawler run finished successfully\n\n\n'))
+    .catch(error => console.error('Error in initial webcrawler run:', error, '\n\n\n'));
+});
+
 schedule.schedule(crawlInterval, () => {
   console.log(`Running the web crawler at ${new Date().toISOString()}...`);
   loadPreviousResults();
   main()
-    .then(() => console.log('Webcrawler finished successfully\n\n\n'))
-    .catch(error => console.error('Error in webcrawler:', error, '\n\n\n'));
+    .then(() => console.log('Scheduled webcrawler run finished successfully\n\n\n'))
+    .catch(error => console.error('Error in scheduled webcrawler run:', error, '\n\n\n'));
 });
 
 const emailStartTimeStr = `${emailStartTime.hour}:${emailStartTime.minute.toString().padStart(2, '0')}`;
