@@ -34,9 +34,12 @@ let cycleNumber = 1;
 const todayDate = () => new Date().toISOString().split("T")[0];
 
 async function extractArticleText(url) {
-  const browser = await puppeteer.launch();
+  const browser = await puppeteer.launch({
+    headless: true,
+    args: ['--no-sandbox', '--disable-setuid-sandbox']
+  });
   const page = await browser.newPage();
-  await page.goto(url, { waitUntil: 'networkidle2' });
+  await page.goto(url, { waitUntil: 'domcontentloaded' });
 
   const articleText = await page.evaluate(() => {
     const mainSelectors = [
@@ -63,11 +66,6 @@ async function extractArticleText(url) {
 
 function cleanText(text) {
   const farewellMessages = [
-    "Sigue toda la información de",
-    "El análisis de la actualidad económica",
-    "Apúntate",
-    "Lo más visto",
-    "Buscar bolsas y mercados",
     "window._taboola",
     "Sección de comentarios",
     "Únete a la conversación",
@@ -244,6 +242,7 @@ const crawlWebsite = async (url, terms) => {
         if (seenLinks.has(link) || link === url) continue;
 
         if (isRecent(dateText)) {
+          console.log(`Found recent article: ${title}`);
           let articleContent = await extractArticleText(link);
           let { score, mostCommonTerm } = relevanceScoreAndMaxCommonFoundTerm(articleContent);
           if (score > 0) {
@@ -276,6 +275,7 @@ const crawlWebsites = async () => {
       for (const [term, articles] of Object.entries(results)) {
         for (const art of articles) {
           allResults[term].push(art);
+          console.log(`Added article: ${art.title} (${art.link})`);
         }
       }
       await new Promise((r) => setTimeout(r, (1000 + Math.floor(Math.random() * 250))));
