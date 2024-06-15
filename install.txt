@@ -1,1 +1,1 @@
-npm install openai@^4.0.0 node-cron path fs cheerio nodemailer node-fetch jsdom
+npm install openai@^4.0.0 node-cron path fs cheerio nodemailer node-fetch puppeteer

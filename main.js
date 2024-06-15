@@ -1,77 +1,59 @@
+// # PACKAGES
 const nodemailer = require("nodemailer");
 const fs = require("fs");
 const path = require("path");
 const cheerio = require('cheerio');
 const schedule = require("node-cron");
+const { OpenAI } = require("openai");
+const puppeteer = require('puppeteer');
+// # FILES
 const { terms, websites } = require("./terminos");
 const config = require("./config.json");
-const { OpenAI, Configuration } = require("openai");
-const { JSDOM } = require('jsdom');
-
+// # CONFIGURATION
 const openai = new OpenAI({ apiKey: config.openai.api_key });
+const maxCycles = config.cycles_per_day;
+
+const parseTime = (timeStr) => {
+  const [hour, minute] = timeStr.split(":").map(Number);
+  return { hour, minute };
+};
+
+const emailStartTime = parseTime(config.email.start_time);
+const emailEndTime = parseTime(config.email.end_time);
+const seenLinks = new Set();
+
+let cycleNumber = 1;
 
 const todayDate = () => new Date().toISOString().split("T")[0];
 
-/**
- * Extracts the main text content from the provided URL.
- *
- * @param {string} url - The URL from which to extract the main text content.
- * @return {string} The extracted main text content.      */
 async function extractArticleText(url) {
-  const fetch = (await import('node-fetch')).default;
-  const response = await fetch(url);
-  const html = await response.text();
-  const dom = new JSDOM(html);
-  const document = dom.window.document;
-  const mainSelectors = [
-    'article',
-    'main',
-    'section',
-    '.article-body',
-    '.content',
-    '.main-content',
-    '.entry-content',
-    '.post-content',
-    '.story-body',
-    '.news-article'
-  ];
-  let mainElement = null;
-  for (let selector of mainSelectors) {
-    mainElement = document.querySelector(selector);
-    if (mainElement) break;
-  }
-  if (!mainElement) {
-    console.error('Main content not found');
-    return '';
-  }
+  const browser = await puppeteer.launch();
+  const page = await browser.newPage();
+  await page.goto(url, { waitUntil: 'networkidle2' });
 
-  /** Recursively extracts the text content from an HTML element and its child elements.
-   *
-   * @param {Node} element - The HTML element from which to extract the text content.
-   * @return {string} The extracted text content.     */
-  function getTextFromElement(element) {
-    if (element.nodeType === dom.window.Node.TEXT_NODE) {
-      return element.nodeValue.trim();
+  const articleText = await page.evaluate(() => {
+    const mainSelectors = [
+      'article', 'main', 'section', '.article-body', 
+      '.content', '.main-content', '.entry-content', 
+      '.post-content', '.story-body', '.news-article'
+    ];
+
+    let mainElement = null;
+    for (let selector of mainSelectors) {
+      mainElement = document.querySelector(selector);
+      if (mainElement) break;
     }
-    if (element.nodeType === dom.window.Node.ELEMENT_NODE) {
-      let text = '';
-      for (let child of element.childNodes) {
-        text += ' ' + getTextFromElement(child);
-      }
-      return text.trim();
-    }
-    return '';
-  }
-  let articleText = getTextFromElement(mainElement);
-  articleText = cleanText(articleText);
-  return articleText;
+
+    if (!mainElement) return '';
+
+    const textContent = mainElement.innerText;
+    return textContent;
+  });
+
+  await browser.close();
+  return cleanText(articleText);
 }
 
-/**
- * Cleans the given text by removing any farewell messages and trimming any leading or trailing whitespace.
- *
- * @param {string} text - The text to be cleaned.
- * @return {string} The cleaned text.       */
 function cleanText(text) {
   const farewellMessages = [
     "Sigue toda la información de",
@@ -91,23 +73,18 @@ function cleanText(text) {
     const index = text.indexOf(message);
     if (index !== -1) {
       text = text.substring(0, index).trim();
-      break; 
+      break;
     }
   }
   return text;
 }
 
-/** Returns a summary of the pertinent content of the given link.
- *  @param {string} link 
- *  @returns {string}    */
-const summarizeText = async (link, numberOfLinks, title) => {
-  link = await extractArticleText(link);
-  link = `Haz un resumen de la siguiente noticia:\n\n\n\n${link}\n\n\n\nIgnora todo texto que no tenga que ver con el titular de la noticia: ${title}`;
-  let maxTokens = 150 + Math.ceil(300/numberOfLinks);
+async function getOpenAIResponse(text, title, maxTokens) {
+  text = `Haz un resumen de la siguiente noticia:\n\n\n\n${text}\n\n\n\nIgnora todo texto que no tenga que ver con el titular de la noticia: ${title}`;
   try {
     const response = await openai.chat.completions.create({
       model: "gpt-4",
-      messages: [{ role: "user", content: link }],
+      messages: [{ role: "user", content: text }],
       stream: true,
       max_tokens: maxTokens,
       temperature: 0.1,
@@ -121,20 +98,54 @@ const summarizeText = async (link, numberOfLinks, title) => {
     }
     return respuesta;
   } catch (error) {
-    console.error(`Error resumiendo el artículo: ${link}`, error);
-    return "No se pudo generar un resumen";
+    console.error('Error in OpenAI response:', error);
+    return "";
   }
+}
+
+async function getProxiedContent(link) {
+  try {
+    const browser = await puppeteer.launch();
+    const page = await browser.newPage();
+    await page.goto('https://12ft.io/', { waitUntil: 'networkidle2' });
+    
+    await page.type('input.px-4.w-\\[300px\\].border.border-gray-400.border-r-0', link);
+    await page.click('button[type="submit"]');
+    await page.waitForNavigation({ waitUntil: 'networkidle2' });
+
+    const content = await page.evaluate(() => document.body.innerText);
+    await browser.close();
+    return content;
+  } catch (error) {
+    console.error('Error in fetching proxied content:', error);
+    return "";
+  }
+}
+
+const summarizeText = async (link, numberOfLinks, title) => {
+  let text = await extractArticleText(link);
+  let maxTokens = 150 + Math.ceil(300 / numberOfLinks);
+  let response = "";
+  let count = 0;
+
+  while (response === "") {
+    if (count == 0) {
+      response = await getOpenAIResponse(text, title, maxTokens);
+    } else if (count == 1) {
+      text = await getProxiedContent(link);
+      response = await getOpenAIResponse(text, title, maxTokens);
+    } else {
+      response = "No se pudo generar un resumen";
+    }
+    count++;
+  }
+
+  return response;
 };
 
-/**
- * Checks if a given date text is recent based on the current date.
- *
- * @param {string} dateText - The date text to check.
- * @return {boolean} Returns true if the date text is recent, false otherwise.  */
 const isRecent = (dateText) => {
   const today = new Date();
-  const todayStr = `${today.getMonth() + 1
-    }/${today.getDate()}/${today.getFullYear()}`;
+  const todayStr = `${today.getMonth() + 1}/${today.getDate()}/${today.getFullYear()}`;
 
   return (
     ["hours ago", "hour ago", "minutes ago", "minute ago", "just now", "hora", "horas", "minuto", "minutos", "segundos", "justo ahora",]
@@ -143,12 +154,6 @@ const isRecent = (dateText) => {
   );
 };
 
-/**
- * Asynchronously fetches a page from a specified URL with retry logic.
- *
- * @param {string} url - The URL to fetch the page from.
- * @param {number} retries - The number of retry attempts (default is 3).
- * @return {Promise<string>} A promise that resolves with the text content of the fetched page. */
 const fetchPage = async (url, retries = 3) => {
   for (let i = 0; i < retries; i++) {
     try {
@@ -166,20 +171,6 @@ const fetchPage = async (url, retries = 3) => {
   return null;
 };
 
-/** Searches for a term within a text.
- * @param {string} text - The text to search within.
- * @param {string} term - The term to search for.
- * @returns {boolean} - Returns true if the term is found, otherwise false. */
-function searchTermInText(text, term) {
-  const escapedTerm = term.replace(/[*+?^${}()|[\]\\]/g, '\\$&');
-  const regex = new RegExp(`\\b${escapedTerm}\\b`, 'i');
-  return regex.test(text);
-}
-
-/** Calculates the relevance score of a text based on the search terms,
- *  and also finds the most common found term from 'terms'.
- *  @param {string} text - The text to calculate the relevance score for.
- *  @returns {Object} - An object containing the relevance score and the most common term  */
 const relevanceScoreAndMaxCommonFoundTerm = (text) => {
   let score = 0, mostCommonTerm = "", maxCommonFoundTermCount = 0;
 
@@ -199,19 +190,28 @@ const relevanceScoreAndMaxCommonFoundTerm = (text) => {
   return { score, mostCommonTerm };
 };
 
-/**
- * Crawls a website for articles related to a list of search terms.
- *
- * @param {string} url - The URL of the website to crawl.
- * @param {Array<string>} terms - The list of search terms to search for.
- * @return {Promise<Object>} An object containing the results of crawling the website, 
- * where the keys are the search terms and the values are arrays of articles.         */
+const normalizeUrl = (url) => {
+  let normalizedUrl = url.trim().toLowerCase();
+  if (normalizedUrl.endsWith('/')) {
+    normalizedUrl = normalizedUrl.slice(0, -1);
+  }
+  return normalizedUrl;
+};
+
+const checkCloseToEmailBracketEnd = (endTime) => {
+  const now = new Date();
+  const end = new Date();
+  end.setHours(endTime.hour, endTime.minute, 0, 0);
+  const tenMinutesBeforeEnd = new Date(end.getTime() - 10 * 60000);
+  return now >= tenMinutesBeforeEnd && now < end;
+};
+
 const crawlWebsite = async (url, terms) => {
   const results = {};
 
   for (const term of terms) {
     results[term] = [];
-    const searchUrl = `https://www.bing.com/search?q=${term}+site:${url}&filters=ex1%3a"ez5"`;
+    const searchUrl = `https://www.bing.com/search?q=${term}+site:${url}&freshness=Day`;
     const pageContent = await fetchPage(searchUrl);
     if (!pageContent) continue;
 
@@ -219,6 +219,11 @@ const crawlWebsite = async (url, terms) => {
     const articleElements = $("li.b_algo");
 
     for (let i = 0; i < articleElements.length; i++) {
+      if (checkCloseToEmailBracketEnd(emailEndTime)) {
+        console.log("Stopping crawling to prepare for email sending.");
+        return results;
+      }
+
       const article = articleElements[i];
       const titleElement = $(article).find("h2");
       const linkElement = titleElement.find("a");
@@ -226,15 +231,16 @@ const crawlWebsite = async (url, terms) => {
 
       if (titleElement && linkElement && dateElement) {
         const title = titleElement.text();
-        const link = linkElement.attr("href");
+        const link = normalizeUrl(linkElement.attr("href"));
         const dateText = dateElement.text();
 
-        if (link === url) continue;
+        if (seenLinks.has(link) || link === url) continue;
 
         if (isRecent(dateText)) {
           let articleContent = await extractArticleText(link);
-          let {score, mostCommonTerm} = relevanceScoreAndMaxCommonFoundTerm(articleContent);
+          let { score, mostCommonTerm } = relevanceScoreAndMaxCommonFoundTerm(articleContent);
           if (score > 0) {
+            seenLinks.add(link);
             const summary = "placeholder";
             results[mostCommonTerm].push({ title, link, summary, score, term: mostCommonTerm });
           }
@@ -246,14 +252,8 @@ const crawlWebsite = async (url, terms) => {
   return results;
 };
 
-/**
- * Crawls a list of websites for articles related to a list of search terms.
- *
- * @return {Promise<Object>} An object containing the results of crawling the websites, 
- * where the keys are the search terms and the values are arrays of articles.       */
 const crawlWebsites = async () => {
   const allResults = {};
-  const seenLinks = new Set();
   for (const term of terms) allResults[term] = [];
 
   for (const url of websites) {
@@ -263,11 +263,7 @@ const crawlWebsites = async () => {
       const results = await crawlWebsite(url, terms);
       for (const [term, articles] of Object.entries(results)) {
         for (const art of articles) {
-          if (!seenLinks.has(art.link)) {
-            console.log("Añadido nuevo artículo: " + art.title + " con enlace: " + art.link);
-            seenLinks.add(art.link);
-            allResults[term].push(art);
-          }
+          allResults[term].push(art);
         }
       }
       await new Promise((r) => setTimeout(r, (1000 + Math.floor(Math.random() * 250))));
@@ -278,15 +274,9 @@ const crawlWebsites = async () => {
   return allResults;
 };
 
-/**
- * Asynchronously saves the results to files, generates summaries for top articles, and writes the results and metadata to JSON files.
- *
- * @param {Object} results - The results object to be saved.
- * @return {void} This function does not return a value.      */
-const saveResults = async (results) => {
-  const resultsPath = path.join(__dirname, "crawled_results.json");
+const saveResults = async (results, cycle) => {
+  const resultsPath = path.join(__dirname, `crawled_results_${cycle}.json`);
   const flagPath = path.join(__dirname, "crawl_complete.flag");
-  const mostCommonTerm = mostCommonTerms(results);
 
   let topArticles = extractTopArticles(results);
   let numTopArticles = topArticles.length;
@@ -296,26 +286,26 @@ const saveResults = async (results) => {
     topArticles[i].summary = await summarizeText(topArticles[i].link, numTopArticles, topArticles[i].title);
   };
 
-  const resultsWithTop = { results, topArticles, mostCommonTerm };
+  const resultsWithTop = { results, topArticles, mostCommonTerm: mostCommonTerms(results) };
 
   fs.writeFileSync(resultsPath, JSON.stringify(resultsWithTop, null, 2));
-  fs.writeFileSync(flagPath, "Crawling complete");
+  if (cycle === maxCycles || checkCloseToEmailBracketEnd(emailEndTime)) {
+    fs.writeFileSync(flagPath, "Crawling complete");
+  }
 };
 
-/**
- * Loads the results from the "crawled_results.json" file and returns them as a parsed JSON object.
- *
- * @return {Object} The parsed JSON object containing the results.    */
-const loadResults = () => {
-  const resultsPath = path.join(__dirname, "crawled_results.json");
-  return JSON.parse(fs.readFileSync(resultsPath));
+const loadPreviousResults = () => {
+  for (let i = 1; i < cycleNumber; i++) {
+    const resultsPath = path.join(__dirname, `crawled_results_${i}.json`);
+    if (fs.existsSync(resultsPath)) {
+      const previousResults = JSON.parse(fs.readFileSync(resultsPath));
+      for (const articles of Object.values(previousResults.results)) {
+        articles.forEach(article => seenLinks.add(article.link));
+      }
+    }
+  }
 };
 
-/**
- * Extracts the top articles from the given results based on their scores.
- *
- * @param {Object} results - The results object containing articles.
- * @return {Array} The top articles with the highest scores.              */
 const extractTopArticles = (results) => {
   let allArticles = [];
   for (let articles of Object.values(results)) {
@@ -327,23 +317,17 @@ const extractTopArticles = (results) => {
 
   let totalScore = 0;
   for (let i = 0; i < allArticles.length; i++) totalScore += allArticles[i].score;
-  let threshold = Math.floor(totalScore * 0.25);
-  //extract the top articles whose total sum of scoreS is at least 25% of total score
+  let threshold = Math.floor(totalScore * 0.8);
+  // Extract the top articles whose total sum of scores is at least 80% of total score
   let topArticles = [];
   while (allArticles.length > 0 && threshold > 0) {
     threshold -= allArticles[0].score;
     topArticles.push(allArticles.shift());
   }
-  
-  return potentialReturn.length > topArticles.length ? potentialReturn : topArticles;
+
+  return potentialReturn.length < topArticles.length ? potentialReturn : topArticles;
 };
 
-/**
- * Finds the most common terms in the given results object, 
- * based on the frequency of articles and their maximum scores.
- *
- * @param {Object} allResults - The results object containing the articles.
- * @return {string} - The most common terms separated by a forward slash.   */
 function mostCommonTerms(allResults) {
   const termCount = {};
 
@@ -372,10 +356,6 @@ function mostCommonTerms(allResults) {
   return topTerms.join('/');
 }
 
-/**
- * Sends an email with the results of web crawling, including top articles and most frequent terms.
- *
- * @return {void} This function does not return a value.  */
 const sendEmail = async () => {
   const emailTime = new Date();
   const [emailHour, emailMinute] = config.time.email.split(":");
@@ -445,35 +425,62 @@ const sendEmail = async () => {
     console.log("Emails sent successfully!");
 
     fs.unlinkSync(path.join(__dirname, "crawl_complete.flag"));
-    fs.unlinkSync(path.join(__dirname, "crawled_results.json"));
+    for (let i = 1; i <= maxCycles; i++) {
+      fs.unlinkSync(path.join(__dirname, `crawled_results_${i}.json`));
+    }
     console.log("Cleanup complete: Deleted flag and results files.");
   } catch (error) {
     console.error(`Error sending emails: ${error}`);
   }
 };
 
-/**
- * Schedules the web crawler to run at the specified time and sends emails with the results.
- *
- * @param {Object} config - The configuration object containing the crawling and email times.
- * @returns {void} This function does not return a value.       */
-const main = async () => {
-  while (config.time.crawl >= config.time.email) {
-    console.log("Edita el archivo 'config.json' y cambia 'time.email' a una hora posterior a 'time.crawl' - No olvides reiniciar el servidor" + Date.now()) + "\n\n\n";
-    await new Promise((r) => setTimeout(r, 60000));
-  }
-  const results = await crawlWebsites();
-  await saveResults(results);
-  await sendEmail();
+const isWithinTimeBracket = (startTime, endTime) => {
+  const now = new Date();
+  const start = new Date();
+  start.setHours(startTime.hour, startTime.minute, 0, 0);
+  const end = new Date();
+  end.setHours(endTime.hour, endTime.minute, 0, 0);
+  return now >= start && now <= end;
 };
 
-schedule.schedule(`${config.time.crawl.split(':')[1]} ${config.time.crawl.split(':')[0]} * * *`, () => {
-  console.log(`Running the web crawler at ${config['time']['crawl']} the day ${todayDate()}...`);
+const waitForTimeBracket = (startTime, endTime) => {
+  return new Promise((resolve) => {
+    const checkInterval = setInterval(() => {
+      if (isWithinTimeBracket(startTime, endTime)) {
+        clearInterval(checkInterval);
+        resolve();
+      }
+    }, 60000); // Check every minute
+  });
+};
+
+const main = async () => {
+  const results = await crawlWebsites();
+  await saveResults(results, cycleNumber);
+
+  if (cycleNumber === maxCycles || checkCloseToEmailBracketEnd(emailEndTime)) {
+    if (isWithinTimeBracket(emailStartTime, emailEndTime)) {
+      await sendEmail();
+    } else {
+      console.log("Current time is outside the email sending time bracket. Waiting to send emails...");
+      await waitForTimeBracket(emailStartTime, emailEndTime);
+      await sendEmail();
+    }
+    cycleNumber = 1;
+  } else {
+    cycleNumber++;
+  }
+};
+
+const crawlInterval = calculateCrawlInterval(config.cycles_per_day);
+
+schedule.schedule(crawlInterval, () => {
+  console.log(`Running the web crawler at ${new Date().toISOString()}...`);
+  loadPreviousResults();
   main()
     .then(() => console.log('Webcrawler finished successfully\n\n\n'))
-    .catch(error => console.error('Error in webcrawler:', error, "\n\n\n"));
+    .catch(error => console.error('Error in webcrawler:', error, '\n\n\n'));
 });
 
-console.log(
-  `Webcrawler scheduled to run at ${config.time.crawl} and emails to be sent not before ${config.time.email} every day.`
-);
+console.log(`Webcrawler scheduled to run at intervals and emails to be sent after ${maxCycles} cycles.`);
+
