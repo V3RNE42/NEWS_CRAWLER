@@ -12,6 +12,12 @@ const config = require("./config.json");
 // # CONFIGURATION
 const openai = new OpenAI({ apiKey: config.openai.api_key });
 const maxCycles = config.cycles_per_day;
+
+const calculateCrawlInterval = (cycles) => {
+  const intervalHours = Math.floor(24 / cycles);
+  return `0 */${intervalHours} * * *`;
+};
+
 const crawlInterval = calculateCrawlInterval(config.cycles_per_day);
 
 const parseTime = (timeStr) => {
