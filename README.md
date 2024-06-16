@@ -72,8 +72,7 @@ The `config.json` file allows you to customize the behavior of the webcrawler. H
 
 - `sender`: Specify the email of the sender with an associated smtp.sendgrid account
 - `recipients`: Specify the email of the people receiving your emails.
-- `crawl`: Set the hour at which the crawling should start.
-- `email`: Set the hour from which the emails can be sent - obviously won't start until that hour is reached AND the news-crawling has finished
+- `email`: Set the hour from which the emails can be sent - obviously won't start until that hour is reached 
 - `api_key`: Set your current OpenAI API key to use the GPT-4 model for generating some email summaries.
 - `smtp_pass`: Set the SendGrid API key of your account
 
@@ -138,7 +137,7 @@ El archivo `config.json` te permite personalizar el comportamiento del webcrawle
 - `sender`: Especifica el correo electrónico del remitente con una cuenta asociada smtp.sendgrid
 - `recipients`: Especifica el correo electrónico de las personas que recibirán tus correos electrónicos.
 - `crawl`: Establece la hora en la que debe comenzar el rastreo.
-- `email`: Establece la hora desde la cual se pueden enviar correos electrónicos; obviamente no comenzará hasta que se haya alcanzado esa hora Y se haya completado el rastreo de noticias
+- `email`: Establece la hora a la cual se envían los correos electrónicos
 - `api_key`: Establece tu clave API actual de OpenAI para usar el modelo GPT-4 para generar algunos resúmenes de correos electrónicos.
 - `smtp_pass`: Establece la clave API de SendGrid de tu cuenta
 
