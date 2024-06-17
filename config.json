@@ -10,6 +10,7 @@
     "time": {
         "email": "21:50"
     },
+    "language": "ES",
     "openai": {
         "api_key": "YOUR_OPENAI_APIKEY"
     }

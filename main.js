@@ -72,6 +72,7 @@ function cleanText(text) {
 }
 
 async function getOpenAIResponse(text, title, maxTokens) {
+    text = text.substring(0, 7800);
     text = `Haz un resumen de la siguiente noticia:\n\n\n\n${text}\n\n\n\nIgnora todo texto que no tenga que ver con el titular de la noticia: ${title}`;
     try {
         const response = await openai.chat.completions.create({
