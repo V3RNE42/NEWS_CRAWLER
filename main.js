@@ -15,7 +15,7 @@ const parseTime = (timeStr) => {
 };
 
 const emailEndTime = parseTime(config.time.email);
-const seenLinks = new Set();
+let seenLinks = new Set();
 
 const todayDate = () => new Date().toISOString().split("T")[0];
 
@@ -308,6 +308,7 @@ const loadPreviousResults = () => {
     const resultsPath = path.join(__dirname, `crawled_results.json`);
     if (fs.existsSync(resultsPath)) {
         const previousResults = JSON.parse(fs.readFileSync(resultsPath));
+        seenLinks = new Set();
         for (const articles of Object.values(previousResults.results)) {
             articles.forEach(article => seenLinks.add(article.link));
         }
