@@ -53,5 +53,5 @@ function getMainTopics(text, language) {
 }
 
 module.exports = {
-    getMostCommonWords: getMainTopics
+    getMainTopics
 };
