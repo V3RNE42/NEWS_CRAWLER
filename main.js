@@ -203,7 +203,7 @@ const checkCloseToEmailBracketEnd = (endTime) => {
 const crawlWebsite = async (url, terms) => {
     let results = {};
 
-    results.forEach((term) => { results[term] = []; }); //initialize every term in the results object
+    terms.forEach((term) => { results[term] = []; }); //initialize every term in the results object
     for (const term of terms) {
         const searchUrl = `https://www.bing.com/search?q=${encodeURIComponent(term)}+site:${encodeURIComponent(url)}&freshness=Day`;
         const pageContent = await fetchPage(searchUrl);
