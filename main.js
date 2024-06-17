@@ -6,6 +6,7 @@ const { OpenAI } = require("openai");
 const puppeteer = require('puppeteer');
 const { terms, websites } = require("./terminos");
 const config = require("./config.json");
+const { getMainTopics } = require("./SENTIMENT_ANALYSIS/topics_extractor.js");
 
 const openai = new OpenAI({ apiKey: config.openai.api_key });
 
@@ -15,6 +16,7 @@ const parseTime = (timeStr) => {
 };
 
 const emailEndTime = parseTime(config.time.email);
+const language = config.language;
 let seenLinks = new Set();
 
 const todayDate = () => new Date().toISOString().split("T")[0];
@@ -233,10 +235,13 @@ const crawlWebsite = async (url, terms) => {
                     let articleContent = await extractArticleText(link);
                     let { score, mostCommonTerm } = relevanceScoreAndMaxCommonFoundTerm(articleContent);
                     if (score > 0) {
-                        seenLinks.add(link);
-                        const summary = "placeholder";
-                        results[mostCommonTerm].push({ title, link, summary, score, term: mostCommonTerm });
-                        console.log(`Found article: ${title} - ${link}`);
+                        let topics = getMainTopics(articleContent, language); //discard false positive
+                        if (topics.some(topic => terms.includes(topic))) {
+                            seenLinks.add(link);
+                            const summary = "placeholder";
+                            results[mostCommonTerm].push({ title, link, summary, score, term: mostCommonTerm });
+                            console.log(`Found article: ${title} - ${link}`);
+                        }
                     }
                 }
             }
