@@ -256,7 +256,7 @@ const checkCloseToEmailBracketEnd = (endTime) => {
     const now = new Date();
     const end = new Date();
     end.setHours(endTime.hour, endTime.minute, 0, 0);
-    const tenMinutesBeforeEnd = new Date(end.getTime() - 15 * 60000);
+    const tenMinutesBeforeEnd = new Date(end.getTime() - 20 * 60000);
     return now >= tenMinutesBeforeEnd && now < end;
 };
 
