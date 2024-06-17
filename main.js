@@ -7,7 +7,6 @@ const puppeteer = require('puppeteer');
 const { terms, websites } = require("./terminos");
 const config = require("./config.json");
 const { getMainTopics } = require("./SENTIMENT_ANALYSIS/topics_extractor.js");
-const { get } = require("http");
 
 const openai = new OpenAI({ apiKey: config.openai.api_key });
 
