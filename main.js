@@ -102,11 +102,9 @@ async function getProxiedContent(link) {
         const browser = await puppeteer.launch();
         const page = await browser.newPage();
         await page.goto('https://12ft.io/', { waitUntil: 'domcontentloaded' });
-
         await page.type('input.px-4.w-\\[300px\\].border.border-gray-400.border-r-0', link);
-        await page.click('button[type="submit"]');
+        await page.click('button.px-4.py-2.min-w-12.text-sm.leading-none.font-medium.border.border-yellow-500.bg-yellow-100.text-yellow-700.hover\\:bg-yellow-200');
         await page.waitForNavigation({ waitUntil: 'domcontentloaded' });
-
         const content = await page.evaluate(() => document.body.innerText);
         await browser.close();
         return content;
