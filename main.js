@@ -7,6 +7,7 @@ const puppeteer = require('puppeteer');
 const { terms, websites } = require("./terminos");
 const config = require("./config.json");
 const { getMainTopics } = require("./SENTIMENT_ANALYSIS/topics_extractor.js");
+const { get } = require("http");
 
 const openai = new OpenAI({ apiKey: config.openai.api_key });
 
@@ -74,29 +75,87 @@ function cleanText(text) {
 }
 
 async function getOpenAIResponse(text, title, maxTokens) {
-    text = text.substring(0, 7800);
-    text = `Haz un resumen de la siguiente noticia:\n\n\n\n${text}\n\n\n\nIgnora todo texto que no tenga que ver con el titular de la noticia: ${title}`;
+    const FULL_TEXT = text;
+    const MAX_TOKENS_PER_CALL = 8000;
+    function getPrompt(news_content, news_title) {
+        return `Haz un resumen de la siguiente noticia:\n\n\n\n${news_content}\n\n\n\n`+
+            `Ignora todo texto que no tenga que ver con el titular de la noticia: ${news_title}`;
+    }
+
     try {
-        const response = await openai.chat.completions.create({
-            model: "gpt-4",
-            messages: [{ role: "user", content: text }],
-            stream: true,
-            max_tokens: maxTokens,
-            temperature: 0.1,
-            top_p: 0.1,
-            frequency_penalty: 0.0,
-            presence_penalty: 0.0,
-        });
+        const chunks = splitTextIntoChunks(FULL_TEXT, MAX_TOKENS_PER_CALL);
         let respuesta = "";
-        for await (const chunk of response) {
-            respuesta += chunk.choices[0]?.delta?.content || "";
+
+        for (const chunk of chunks) {
+            let content = getPrompt(chunk, title);
+            const response = await openai.chat.completions.create({
+                model: "gpt-4",
+                messages: [{ role: "user", content: content }],
+                stream: true,
+                max_tokens: maxTokens,
+                temperature: 0.1,
+                top_p: 0.1,
+                frequency_penalty: 0.0,
+                presence_penalty: 0.0,
+            });
+
+            for await (const chunkResponse of response) {
+                respuesta += chunkResponse.choices[0]?.delta?.content || "";
+            }
         }
+
         return respuesta;
     } catch (error) {
         console.error('Error in OpenAI response:', error);
         return "";
     }
 }
+
+function splitTextIntoChunks(text, maxTokens) {
+    const tokens = text.split(/\s+/);
+    const chunks = [];
+    let currentChunk = "";
+
+    for (const token of tokens) {
+        if ((currentChunk + " " + token).length <= maxTokens) {
+            currentChunk += " " + token;
+        } else {
+            chunks.push(currentChunk.trim());
+            currentChunk = token;
+        }
+    }
+
+    if (currentChunk) {
+        chunks.push(currentChunk.trim());
+    }
+
+    return chunks;
+}
+
+// async function getOpenAIResponse(text, title, maxTokens) {
+//     text = text.substring(0, 7800);
+//     text = `Haz un resumen de la siguiente noticia:\n\n\n\n${text}\n\n\n\nIgnora todo texto que no tenga que ver con el titular de la noticia: ${title}`;
+//     try {
+//         const response = await openai.chat.completions.create({
+//             model: "gpt-4",
+//             messages: [{ role: "user", content: text }],
+//             stream: true,
+//             max_tokens: maxTokens,
+//             temperature: 0.1,
+//             top_p: 0.1,
+//             frequency_penalty: 0.0,
+//             presence_penalty: 0.0,
+//         });
+//         let respuesta = "";
+//         for await (const chunk of response) {
+//             respuesta += chunk.choices[0]?.delta?.content || "";
+//         }
+//         return respuesta;
+//     } catch (error) {
+//         console.error('Error in OpenAI response:', error);
+//         return "";
+//     }
+// }
 
 async function getProxiedContent(link) {
     try {
