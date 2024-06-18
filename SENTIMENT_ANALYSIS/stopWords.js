@@ -23,6 +23,6 @@ module.exports = {
         'haríamos', 'haríais', 'harían', 'ir', 'voy', 'vas', 'va', 'vamos', 'vais', 'van', 'iba', 'ibas', 'íbamos', 'ibais', 'iban', 'fui', 'fuiste', 
         'fue', 'fuimos', 'fuisteis', 'fueron', 'vaya', 'vayas', 'vaya', 'vayamos', 'vayáis', 'vayan', 'iré', 'irás', 'irá', 'iremos', 'iréis', 'irán', 
         'iría', 'irías', 'iríamos', 'iríais', 'irían', 'de', 'desde', 'a', 'ante', 'bajo', 'cabe', 'con', 'en', 'entre', 'hasta', 'hacia', 'sin', 'sobre', 
-        'tras', 'de', 'el', 'la', 'para', 'por', 'mientras', 'un', 'una', 'ni', 'siquiera'
+        'tras', 'la', 'para', 'por', 'mientras', 'un', 'una', 'ni', 'siquiera'
     ]
 }
