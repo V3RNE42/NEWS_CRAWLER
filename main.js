@@ -5,23 +5,24 @@ const cheerio = require('cheerio');
 const { OpenAI } = require("openai");
 const puppeteer = require('puppeteer');
 let { terms, websites } = require("./terminos");
-terms = terms.map((term) => term.toLowerCase());
 const config = require("./config.json");
 const { getMainTopics, sanitizeHtml } = require("./SENTIMENT_ANALYSIS/topics_extractor");
 
 const openai = new OpenAI({ apiKey: config.openai.api_key });
-
+const LANGUAGE = config.language;
+const SENSITIVITY = config.sensitivity;
+const emailEndTime = parseTime(config.time.email);
 const MAX_TOKENS_PER_CALL = config.openai.max_tokens_per_call;
+const SUMMARY_PLACEHOLDER = "placeholder";
+const FAILED_SUMMARY_MSSG = "No se pudo generar un resumen";
+
+let seenLinks = new Set();
+terms = terms.map((term) => term.toLowerCase());
 
 const parseTime = (timeStr) => {
     const [hour, minute] = timeStr.split(":").map(Number);
     return { hour, minute };
 };
-
-const emailEndTime = parseTime(config.time.email);
-const language = config.language;
-const SENSITIVITY = config.sensitivity;
-let seenLinks = new Set();
 
 const todayDate = () => new Date().toISOString().split("T")[0];
 
@@ -71,7 +72,7 @@ async function getChunkedOpenAIResponse(text, title, maxTokens) {
         maxTokens = Math.floor(maxTokens / chunks.length);
 
         for (let i = 0; i < chunks.length; i++) {
-            let content = getPrompt(chunks[i], title, i, chunks.length);
+            let content = getPrompt(chunks[i], title, (i + 1), chunks.length);
             const response = await openai.chat.completions.create({
                 model: "gpt-4",
                 messages: [{ role: "user", content: content }],
@@ -156,7 +157,7 @@ async function getOpenAIResponse(text, title, maxTokens) {
 
 async function getProxiedContent(link) {
     try {
-        console.log(`Let's go with the proxy for ${link} ...`);
+        console.log(`Article may be behind a PayWall :-(\nLet's try to access via proxy for ${link} ...`);
         const browser = await puppeteer.launch();
         const page = await browser.newPage();
         await page.goto('https://12ft.io/', { waitUntil: 'domcontentloaded' });
@@ -182,11 +183,10 @@ const summarizeText = async (link, numberOfLinks, title) => {
         if (count == 0) {
             response = await getOpenAIResponse(text, title, maxTokens);
         } else if (count == 1) {
-            console.log("Article may be behind a PayWall...");
             text = await getProxiedContent(link);
             response = await getOpenAIResponse(text, title, maxTokens);
         } else {
-            response = "No se pudo generar un resumen";
+            response = FAILED_SUMMARY_MSSG;
         }
         count++;
     }
@@ -291,10 +291,10 @@ const crawlWebsite = async (url, terms) => {
                     let articleContent = await extractArticleText(link);
                     let { score, mostCommonTerm } = relevanceScoreAndMaxCommonFoundTerm(articleContent);
                     if (score > 0) {
-                        let topics = getMainTopics(articleContent, language, SENSITIVITY); //discard false positive
+                        let topics = getMainTopics(articleContent, LANGUAGE, SENSITIVITY); //discard false positive
                         if (topics.some(topic => terms.includes(topic.toLowerCase()))) {
                             seenLinks.add(link);
-                            const summary = "placeholder";
+                            const summary = SUMMARY_PLACEHOLDER;
                             results[mostCommonTerm].push({ title, link, summary, score, term: mostCommonTerm });
                             console.log(`Found article: ${title} - ${link}`);
                         }
@@ -347,7 +347,10 @@ const saveResults = async (results) => {
         topArticles = extractTopArticles(results);
         numTopArticles = topArticles.length;
         for (let i = 0; i < numTopArticles; i++) {
-            topArticles[i].summary = await summarizeText(topArticles[i].link, numTopArticles, topArticles[i].title);
+            if (topArticles[i].summary == SUMMARY_PLACEHOLDER || 
+                topArticles[i].summary.includes(FAILED_SUMMARY_MSSG)) {
+                topArticles[i].summary = await summarizeText(topArticles[i].link, numTopArticles, topArticles[i].title);
+            }
         }
         mostCommonTerm = mostCommonTerms(results);
     }
