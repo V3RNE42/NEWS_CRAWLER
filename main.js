@@ -11,7 +11,6 @@ const { getMainTopics, sanitizeHtml } = require("./SENTIMENT_ANALYSIS/topics_ext
 const openai = new OpenAI({ apiKey: config.openai.api_key });
 const LANGUAGE = config.language;
 const SENSITIVITY = config.sensitivity;
-const emailEndTime = parseTime(config.time.email);
 const MAX_TOKENS_PER_CALL = config.openai.max_tokens_per_call;
 const SUMMARY_PLACEHOLDER = "placeholder";
 const FAILED_SUMMARY_MSSG = "No se pudo generar un resumen";
@@ -23,6 +22,8 @@ const parseTime = (timeStr) => {
     const [hour, minute] = timeStr.split(":").map(Number);
     return { hour, minute };
 };
+
+const emailEndTime = parseTime(config.time.email);
 
 const todayDate = () => new Date().toISOString().split("T")[0];
 
