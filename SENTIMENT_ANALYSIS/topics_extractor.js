@@ -1,4 +1,3 @@
-// Sample stopwords for testing
 const { stopwordsEs, stopwordsEn } = require("./stopWords");
 const sanitizeHtml = require('sanitize-html');
 
@@ -13,9 +12,13 @@ function filterWords(words, stopwords) {
     return result;
 }
 
-function getMainTopics(text, language) {
+function getMainTopics(text, language, sensitivity) {
     if (language == 'ES') {
         text = text.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    }
+
+    if (sensitivity == undefined || null) {
+        sensitivity = 5; //higher sensitivity => less false positives & more false negatives
     }
 
     text = sanitizeHtml(text, { allowedTags: [], allowedAttributes: {} });
@@ -39,7 +42,7 @@ function getMainTopics(text, language) {
     for (let i = 0; i < sortedWords.length; i++) {
         totalWordCount += sortedWords[i][1];
     }
-    let threshold = Math.floor(totalWordCount * 0.1);
+    let threshold = Math.floor(totalWordCount * (1/sensitivity));
     let result = [];
 
     while (threshold > 0) {
@@ -53,5 +56,6 @@ function getMainTopics(text, language) {
 }
 
 module.exports = {
-    getMainTopics
-};
+    getMainTopics,
+    sanitizeHtml
+}

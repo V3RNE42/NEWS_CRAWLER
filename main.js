@@ -4,11 +4,14 @@ const path = require("path");
 const cheerio = require('cheerio');
 const { OpenAI } = require("openai");
 const puppeteer = require('puppeteer');
-const { terms, websites } = require("./terminos");
+let { terms, websites } = require("./terminos");
+terms = terms.map((term) => term.toLowerCase());
 const config = require("./config.json");
-const { getMainTopics } = require("./SENTIMENT_ANALYSIS/topics_extractor.js");
+const { getMainTopics, sanitizeHtml } = require("./SENTIMENT_ANALYSIS/topics_extractor");
 
 const openai = new OpenAI({ apiKey: config.openai.api_key });
+
+const MAX_TOKENS_PER_CALL = 8000;
 
 const parseTime = (timeStr) => {
     const [hour, minute] = timeStr.split(":").map(Number);
@@ -17,6 +20,7 @@ const parseTime = (timeStr) => {
 
 const emailEndTime = parseTime(config.time.email);
 const language = config.language;
+const SENSITIVITY = config.sensitivity;
 let seenLinks = new Set();
 
 const todayDate = () => new Date().toISOString().split("T")[0];
@@ -52,41 +56,22 @@ async function extractArticleText(url) {
     return cleanText(articleText);
 }
 
-function cleanText(text) {
-    const farewellMessages = [
-        "Apúntate",
-        "window._taboola",
-        "Sección de comentarios",
-        "Únete a la conversación",
-        "COMPARTIR",
-        "COMENTARIOS",
-        "Comparte esta noticia en tus redes",
-        "Comenta esta noticia"
-    ];
-    for (let message of farewellMessages) {
-        const index = text.indexOf(message);
-        if (index !== -1) {
-            text = text.substring(0, index).trim();
-            break;
-        }
-    }
-    return text;
-}
+const cleanText = (text) => sanitizeHtml(text, { allowedTags: [], allowedAttributes: [] });
 
-async function getOpenAIResponse(text, title, maxTokens) {
-    const FULL_TEXT = text;
-    const MAX_TOKENS_PER_CALL = 8000;
-    function getPrompt(news_content, news_title) {
-        return `Haz un resumen de la siguiente noticia:\n\n\n\n${news_content}\n\n\n\n`+
+async function getChunkedOpenAIResponse(text, title, maxTokens) {
+    function getPrompt(news_content, news_title, current, total) {
+        return `Haz un resumen del siguiente fragmento que cubre la parte ${current} de ${total}`+
+            `de la siguiente noticia:\n\n\n\n${news_content}\n\n\n\n`+
             `Ignora todo texto que no tenga que ver con el titular de la noticia: ${news_title}`;
     }
 
     try {
-        const chunks = splitTextIntoChunks(FULL_TEXT, MAX_TOKENS_PER_CALL);
+        const chunks = splitTextIntoChunks(text);
         let respuesta = "";
+        maxTokens = Math.floor(maxTokens / chunks.length);
 
-        for (const chunk of chunks) {
-            let content = getPrompt(chunk, title);
+        for (let i = 0; i < chunks.length; i++) {
+            let content = getPrompt(chunks[i], title, i, chunks.length);
             const response = await openai.chat.completions.create({
                 model: "gpt-4",
                 messages: [{ role: "user", content: content }],
@@ -110,13 +95,15 @@ async function getOpenAIResponse(text, title, maxTokens) {
     }
 }
 
-function splitTextIntoChunks(text, maxTokens) {
+const countTokens = (text) =>  text.trim().split(/\s+/).length;
+
+function splitTextIntoChunks(text) {
     const tokens = text.split(/\s+/);
     const chunks = [];
     let currentChunk = "";
 
     for (const token of tokens) {
-        if ((currentChunk + " " + token).length <= maxTokens) {
+        if ((currentChunk + " " + token).length <= MAX_TOKENS_PER_CALL) {
             currentChunk += " " + token;
         } else {
             chunks.push(currentChunk.trim());
@@ -131,30 +118,41 @@ function splitTextIntoChunks(text, maxTokens) {
     return chunks;
 }
 
-// async function getOpenAIResponse(text, title, maxTokens) {
-//     text = text.substring(0, 7800);
-//     text = `Haz un resumen de la siguiente noticia:\n\n\n\n${text}\n\n\n\nIgnora todo texto que no tenga que ver con el titular de la noticia: ${title}`;
-//     try {
-//         const response = await openai.chat.completions.create({
-//             model: "gpt-4",
-//             messages: [{ role: "user", content: text }],
-//             stream: true,
-//             max_tokens: maxTokens,
-//             temperature: 0.1,
-//             top_p: 0.1,
-//             frequency_penalty: 0.0,
-//             presence_penalty: 0.0,
-//         });
-//         let respuesta = "";
-//         for await (const chunk of response) {
-//             respuesta += chunk.choices[0]?.delta?.content || "";
-//         }
-//         return respuesta;
-//     } catch (error) {
-//         console.error('Error in OpenAI response:', error);
-//         return "";
-//     }
-// }
+async function getNonChunkedOpenAIResponse(text, title, maxTokens) {
+    text = `Haz un resumen de la siguiente noticia:\n\n\n\n${text}\n\n\n\nIgnora todo texto que no tenga que ver con el titular de la noticia: ${title}`;
+    try {
+        const response = await openai.chat.completions.create({
+            model: "gpt-4",
+            messages: [{ role: "user", content: text }],
+            stream: true,
+            max_tokens: maxTokens,
+            temperature: 0.1,
+            top_p: 0.1,
+            frequency_penalty: 0.0,
+            presence_penalty: 0.0,
+        });
+        let respuesta = "";
+        for await (const chunk of response) {
+            respuesta += chunk.choices[0]?.delta?.content || "";
+        }
+        return respuesta;
+    } catch (error) {
+        console.error('Error in OpenAI response:', error);
+        return "";
+    }
+}
+
+async function getOpenAIResponse(text, title, maxTokens) {
+    if (text == "" || title == "") {
+        return "";
+    }
+
+    if (countTokens(text) >= MAX_TOKENS_PER_CALL) {
+        return getChunkedOpenAIResponse(text, title, maxTokens);
+    }
+
+    return getNonChunkedOpenAIResponse(text, title, maxTokens);
+}
 
 async function getProxiedContent(link) {
     try {
@@ -293,8 +291,8 @@ const crawlWebsite = async (url, terms) => {
                     let articleContent = await extractArticleText(link);
                     let { score, mostCommonTerm } = relevanceScoreAndMaxCommonFoundTerm(articleContent);
                     if (score > 0) {
-                        let topics = getMainTopics(articleContent, language); //discard false positive
-                        if (topics.some(topic => terms.includes(topic))) {
+                        let topics = getMainTopics(articleContent, language, SENSITIVITY); //discard false positive
+                        if (topics.some(topic => terms.includes(topic.toLowerCase()))) {
                             seenLinks.add(link);
                             const summary = "placeholder";
                             results[mostCommonTerm].push({ title, link, summary, score, term: mostCommonTerm });
@@ -374,7 +372,6 @@ const loadPreviousResults = () => {
         for (const articles of Object.values(previousResults.results)) {
             articles.forEach(article => seenLinks.add(article.link));
         }
-        fs.unlinkSync(resultsPath);
         return previousResults.results;
     } else {
         let previous_results = {};
