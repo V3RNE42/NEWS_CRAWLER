@@ -2,10 +2,13 @@ const { stopwordsEs, stopwordsEn } = require("./stopWords");
 const sanitizeHtml = require('sanitize-html');
 
 function filterWords(words, stopwords) {
+    const stopwordsSet = new Set(stopwords);
     const result = [];
     for (let i = 0; i < words.length; i++) {
         const word = words[i];
-        if (!stopwords.includes(word) && word.length > 2) {
+        if (stopwordsSet.has(word)) {
+            continue;
+        } else {
             result.push(word);
         }
     }
