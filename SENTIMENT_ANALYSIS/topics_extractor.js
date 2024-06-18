@@ -6,9 +6,7 @@ function filterWords(words, stopwords) {
     const result = [];
     for (let i = 0; i < words.length; i++) {
         const word = words[i];
-        if (stopwordsSet.has(word)) {
-            continue;
-        } else {
+        if (!stopwordsSet.has(word)) {
             result.push(word);
         }
     }
