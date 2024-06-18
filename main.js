@@ -11,7 +11,7 @@ const { getMainTopics, sanitizeHtml } = require("./SENTIMENT_ANALYSIS/topics_ext
 
 const openai = new OpenAI({ apiKey: config.openai.api_key });
 
-const MAX_TOKENS_PER_CALL = 8000;
+const MAX_TOKENS_PER_CALL = config.openai.max_tokens_per_call;
 
 const parseTime = (timeStr) => {
     const [hour, minute] = timeStr.split(":").map(Number);
