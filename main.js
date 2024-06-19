@@ -361,36 +361,42 @@ const crawlWebsites = async () => {
  *
  * @param {Object} results - An object containing articles grouped by terms.
  * @return {Promise<void>} A promise that resolves when the redundant articles have been removed.   */
-async function removeRedundantArticles(results) {
+const removeRedundantArticles = async (results) => {
     for (const term of terms) {
         const articles = results[term];
         const uniqueArticles = [];
+        const toRemove = new Set(); // Keep track of indices to remove
         for (let i = 0; i < articles.length; i++) {
+            if (toRemove.has(i)) continue; // Skip if already marked for removal
             let unique = true;
             for (let j = 0; j < articles.length; j++) {
-                let sameNews = await coveringSameNews(
-                    articles[i].fullText, 
-                    articles[j].fullText, 
-                    LANGUAGE, 
-                    SIMILARITY_THRESHOLD);
-
-                if (i != j && sameNews) {
-                    unique = false;
-                    if (articles[i].score < articles[j].score) {
-                        articles.splice(i, 1);
-                    } else {
-                        articles.splice(j, 1);
+                if (i !== j && !toRemove.has(j)) {
+                    const sameNews = await coveringSameNews(
+                        articles[i].fullText, 
+                        articles[j].fullText, 
+                        LANGUAGE, 
+                        SIMILARITY_THRESHOLD
+                    );
+                    if (sameNews) {
+                        unique = false;
+                        if (articles[i].score < articles[j].score) {
+                            toRemove.add(i);
+                        } else {
+                            toRemove.add(j);
+                        }
+                        break; // Stop inner loop as we found a duplicate
                     }
-                    break;
                 }
             }
             if (unique) uniqueArticles.push(articles[i]);
         }
-        results[term] = uniqueArticles;
+        const filteredArticles = articles.filter((_, index) => !toRemove.has(index));
+        results[term] = filteredArticles;
     }
 
     return results;
 }
+
 
 const saveResults = async (results) => {
     console.log("Saving results...");
@@ -400,7 +406,11 @@ const saveResults = async (results) => {
     let numTopArticles = 0;
     let mostCommonTerm = "Most_Common_Term";
     
-    results = removeRedundantArticles(results);
+    try {
+        results = await removeRedundantArticles(results);
+    } catch (error) {
+        console.log(error);
+    }
 
     const thisIsTheTime = checkCloseToEmailBracketEnd(emailEndTime);
     if (thisIsTheTime) {

@@ -1,1 +1,1 @@
-npm install openai@^4.0.0 path fs cheerio nodemailer node-fetch puppeteer @tensorflow/tfjs @tensorflow/tfjs-node @tensorflow-models/universal-sentence-encoder sanitize-html
+npm install openai@^4.0.0 path fs cheerio nodemailer node-fetch puppeteer sanitize-html natural
