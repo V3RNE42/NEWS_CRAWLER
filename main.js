@@ -37,7 +37,7 @@ async function extractArticleText(url) {
     const page = await browser.newPage();
     await page.goto(url, { waitUntil: 'domcontentloaded' });
 
-    const articleText = await page.evaluate(() => {
+    let articleText = await page.evaluate(() => {
         const mainSelectors = [
             'article', 'main', 'section', '.article-body',
             '.content', '.main-content', '.entry-content',
