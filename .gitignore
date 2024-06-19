@@ -2,3 +2,6 @@ config.json.txt
 cosa.js
 hhhh.js
 hhhhhhhhhh.js
+node_modules
+crawled_results.json
+crawl_complete.flag

@@ -1,0 +1,33 @@
+{
+  "name": "news_crawler",
+  "version": "1.0.0",
+  "description": "Welcome to the NodeJS Webcrawler Newsletter! This newsletter aims to provide you with the latest updates, tips, and resources related to whatever you want! It's defaulted to Spanish newspapers and international security issues, but you can adapt it to your own needs! :^)",
+  "main": "main.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/V3RNE42/NEWS_CRAWLER.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/V3RNE42/NEWS_CRAWLER/issues"
+  },
+  "homepage": "https://github.com/V3RNE42/NEWS_CRAWLER#readme",
+  "dependencies": {
+    "@tensorflow-models/universal-sentence-encoder": "^1.3.3",
+    "@tensorflow/tfjs": "^4.20.0",
+    "@tensorflow/tfjs-node": "^4.20.0",
+    "cheerio": "^1.0.0-rc.12",
+    "fs": "^0.0.1-security",
+    "node-fetch": "^3.3.2",
+    "nodemailer": "^6.9.13",
+    "openai": "^4.0.0",
+    "path": "^0.12.7",
+    "puppeteer": "^22.11.2",
+    "sanitize-html": "^2.13.0"
+  }
+}

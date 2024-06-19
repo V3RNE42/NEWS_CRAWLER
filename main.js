@@ -6,7 +6,8 @@ const { OpenAI } = require("openai");
 const puppeteer = require('puppeteer');
 let { terms, websites } = require("./terminos");
 const config = require("./config.json");
-const { getMainTopics, sanitizeHtml } = require("./SENTIMENT_ANALYSIS/topics_extractor");
+const { getMainTopics, sanitizeHtml } = require("./WORD_ANALYSIS/topics_extractor");
+const { coveringSameNews } = require("./WORD_ANALYSIS/natural_processing");
 
 const openai = new OpenAI({ apiKey: config.openai.api_key });
 const LANGUAGE = config.language;
@@ -14,6 +15,7 @@ const SENSITIVITY = config.sensitivity;
 const MAX_TOKENS_PER_CALL = config.openai.max_tokens_per_call;
 const SUMMARY_PLACEHOLDER = "placeholder";
 const FAILED_SUMMARY_MSSG = "No se pudo generar un resumen";
+const SIMILARITY_THRESHOLD = 0.85;
 
 let seenLinks = new Set();
 terms = terms.map((term) => term.toLowerCase());
@@ -55,15 +57,26 @@ async function extractArticleText(url) {
     });
 
     await browser.close();
+
+    if (articleText === "") {
+        const response = await fetch(url);
+        const html = await response.text();
+        const $ = cheerio.load(html);
+        articleText = $.html();
+    }
+    
     return cleanText(articleText);
 }
 
-const cleanText = (text) => sanitizeHtml(text, { allowedTags: [], allowedAttributes: [] });
+const cleanText = (text) => {
+    text = sanitizeHtml(text, { allowedTags: [], allowedAttributes: [] });
+    return text.replace(/<[^>]*>/g, ' ').trim();
+}
 
 async function getChunkedOpenAIResponse(text, title, maxTokens) {
     function getPrompt(news_content, news_title, current, total) {
-        return `Haz un resumen del siguiente fragmento que cubre la parte ${current} de ${total}`+
-            `de la siguiente noticia:\n\n\n\n${news_content}\n\n\n\n`+
+        return `Haz un resumen del siguiente fragmento que cubre la parte ${current} de ${total}` +
+            `de la siguiente noticia:\n\n\n\n${news_content}\n\n\n\n` +
             `Ignora todo texto que no tenga que ver con el titular de la noticia: ${news_title}`;
     }
 
@@ -97,7 +110,7 @@ async function getChunkedOpenAIResponse(text, title, maxTokens) {
     }
 }
 
-const countTokens = (text) =>  text.trim().split(/\s+/).length;
+const countTokens = (text) => text.trim().split(/\s+/).length;
 
 function splitTextIntoChunks(text) {
     const tokens = text.split(/\s+/);
@@ -250,11 +263,18 @@ const normalizeUrl = (url) => {
     return normalizedUrl;
 };
 
+/**
+ * Checks if the current time is within 30 minutes of the end time.
+ *
+ * @param {Object} endTime - An object containing the hour and minute of the end time.
+ * @param {number} endTime.hour - The hour of the end time.
+ * @param {number} endTime.minute - The minute of the end time.
+ * @return {boolean} Returns true if the current time is within 30 minutes of the end time, false otherwise.    */
 const checkCloseToEmailBracketEnd = (endTime) => {
     const now = new Date();
     const end = new Date();
     end.setHours(endTime.hour, endTime.minute, 0, 0);
-    const tenMinutesBeforeEnd = new Date(end.getTime() - 20 * 60000);
+    const tenMinutesBeforeEnd = new Date(end.getTime() - 30 * 60000);
     return now >= tenMinutesBeforeEnd && now < end;
 };
 
@@ -289,14 +309,14 @@ const crawlWebsite = async (url, terms) => {
                 if (seenLinks.has(link) || link === url) continue;
 
                 if (isRecent(dateText)) {
-                    let articleContent = await extractArticleText(link);
-                    let { score, mostCommonTerm } = relevanceScoreAndMaxCommonFoundTerm(articleContent);
+                    let fullText = await extractArticleText(link);
+                    let { score, mostCommonTerm } = relevanceScoreAndMaxCommonFoundTerm(fullText);
                     if (score > 0) {
-                        let topics = getMainTopics(articleContent, LANGUAGE, SENSITIVITY); //discard false positive
+                        let topics = getMainTopics(fullText, LANGUAGE, SENSITIVITY); //discard false positive
                         if (topics.some(topic => terms.includes(topic.toLowerCase()))) {
                             seenLinks.add(link);
                             const summary = SUMMARY_PLACEHOLDER;
-                            results[mostCommonTerm].push({ title, link, summary, score, term: mostCommonTerm });
+                            results[mostCommonTerm].push({ title, link, summary, score, term: mostCommonTerm, fullText });
                             console.log(`Found article: ${title} - ${link}`);
                         }
                     }
@@ -336,6 +356,42 @@ const crawlWebsites = async () => {
     return allResults;
 };
 
+/**
+ * Removes redundant articles from the given results object.
+ *
+ * @param {Object} results - An object containing articles grouped by terms.
+ * @return {Promise<void>} A promise that resolves when the redundant articles have been removed.   */
+async function removeRedundantArticles(results) {
+    for (const term of terms) {
+        const articles = results[term];
+        const uniqueArticles = [];
+        for (let i = 0; i < articles.length; i++) {
+            let unique = true;
+            for (let j = 0; j < articles.length; j++) {
+                let sameNews = await coveringSameNews(
+                    articles[i].fullText, 
+                    articles[j].fullText, 
+                    LANGUAGE, 
+                    SIMILARITY_THRESHOLD);
+
+                if (i != j && sameNews) {
+                    unique = false;
+                    if (articles[i].score < articles[j].score) {
+                        articles.splice(i, 1);
+                    } else {
+                        articles.splice(j, 1);
+                    }
+                    break;
+                }
+            }
+            if (unique) uniqueArticles.push(articles[i]);
+        }
+        results[term] = uniqueArticles;
+    }
+
+    return results;
+}
+
 const saveResults = async (results) => {
     console.log("Saving results...");
     const resultsPath = path.join(__dirname, `crawled_results.json`);
@@ -343,12 +399,15 @@ const saveResults = async (results) => {
     let topArticles = [];
     let numTopArticles = 0;
     let mostCommonTerm = "Most_Common_Term";
+    
+    results = removeRedundantArticles(results);
+
     const thisIsTheTime = checkCloseToEmailBracketEnd(emailEndTime);
     if (thisIsTheTime) {
         topArticles = extractTopArticles(results);
         numTopArticles = topArticles.length;
         for (let i = 0; i < numTopArticles; i++) {
-            if (topArticles[i].summary == SUMMARY_PLACEHOLDER || 
+            if (topArticles[i].summary == SUMMARY_PLACEHOLDER ||
                 topArticles[i].summary.includes(FAILED_SUMMARY_MSSG)) {
                 topArticles[i].summary = await summarizeText(topArticles[i].link, numTopArticles, topArticles[i].title);
             }
@@ -379,7 +438,7 @@ const loadPreviousResults = () => {
         return previousResults.results;
     } else {
         let previous_results = {};
-        terms.forEach((term)=>{ previous_results[term] = [] })
+        terms.forEach((term) => { previous_results[term] = [] })
         return previous_results;
     }
 };
@@ -458,7 +517,7 @@ const sendEmail = async () => {
     const recipients = config.email.recipients;
     const totalLinks = Object.values(results.results).flat().length ?? 0;
     const sortedResults = Object.entries(results.results).sort((a, b) => b[1].length - a[1].length) ?? [];
-    
+
     const mostFrequentTerm = results.mostCommonTerm ?? "";
     const subject = `Noticias Frescas ${todayDate()} - ${mostFrequentTerm}`;
     let topArticles = results.topArticles ?? [];
@@ -535,7 +594,7 @@ const main = async () => {
         }
     }
     /**Edge case of checkCloseToEmailBracketEnd(emailEndTime) becoming true 
-     * RIGHT AFTER saveResults(resultados), but BEFORE starting a new cycle   */     
+     * RIGHT AFTER saveResults(resultados), but BEFORE starting a new cycle   */
     if (!proceedToSendEmail) {
         await saveResults(resultados);
     }
@@ -547,7 +606,7 @@ const main = async () => {
 // Using IIFE to handle top-level await
 (async () => {
     console.log(`Webcrawler scheduled to run indefinetely. Emails will be sent daily at ${config.time.email}`);
-    
+
     while (true) {
         console.log(`Running the web crawler at ${new Date().toISOString()}...`);
         await main()
