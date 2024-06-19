@@ -406,14 +406,9 @@ const saveResults = async (results) => {
     let numTopArticles = 0;
     let mostCommonTerm = "Most_Common_Term";
     
-    try {
-        results = await removeRedundantArticles(results);
-    } catch (error) {
-        console.log(error);
-    }
-
     const thisIsTheTime = checkCloseToEmailBracketEnd(emailEndTime);
     if (thisIsTheTime) {
+        results = await removeRedundantArticles(results);
         topArticles = extractTopArticles(results);
         numTopArticles = topArticles.length;
         for (let i = 0; i < numTopArticles; i++) {
