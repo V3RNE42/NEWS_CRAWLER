@@ -35,7 +35,8 @@ To use this NodeJS webcrawler newsletter, follow these steps:
 2. Install the required dependencies by running the following command in your terminal:
 
     ```
-    npm install openai@^4.0.0 path fs cheerio nodemailer node-fetch puppeteer
+      npm init -y
+      npm install
     ```
 
 3. Configure the webcrawler by updating the `config.json` file with your desired settings. You can specify the target website, crawling depth, and other parameters. Refer to the [Configuration Guide](#configuration-guide) for more details.
@@ -99,7 +100,8 @@ Para utilizar esta newsletter de webcrawler de NodeJS, sigue estos pasos:
 2. Instala las dependencias necesarias ejecutando el contenido de `install.txt` en la consola:
 
     ```bash
-    npm install openai@^4.0.0 path fs cheerio nodemailer node-fetch puppeteer
+      npm init -y
+      npm install
     ```
 
 3. Configura el webcrawler actualizando el archivo `config.json` con tus ajustes deseados. Puedes especificar el sitio web objetivo, la profundidad del crawling y otros parámetros. Consulta la [Guía de Configuración](#guía-de-configuración) para más detalles.
