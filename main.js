@@ -1,3 +1,4 @@
+//MODULES AND IMPORTS
 const nodemailer = require("nodemailer");
 const fs = require("fs");
 const path = require("path");
@@ -9,6 +10,7 @@ const config = require("./config.json");
 const { getMainTopics, sanitizeHtml } = require("./WORD_ANALYSIS/topics_extractor");
 const { coveringSameNews } = require("./WORD_ANALYSIS/natural_processing");
 
+//IMPORTANT CONSTANTS AND SETTINGS
 const openai = new OpenAI({ apiKey: config.openai.api_key });
 const LANGUAGE = config.language;
 const SENSITIVITY = config.sensitivity;
@@ -27,8 +29,14 @@ const parseTime = (timeStr) => {
 
 const emailEndTime = parseTime(config.time.email);
 
+//FUNCTIONS
 const todayDate = () => new Date().toISOString().split("T")[0];
 
+/**
+ * Extracts the text content of an article from a given URL.
+ *
+ * @param {string} url - The URL of the article.
+ * @return {Promise<string>} A Promise that resolves to the extracted text content. */
 async function extractArticleText(url) {
     const browser = await puppeteer.launch({
         headless: true,
@@ -157,6 +165,15 @@ async function getNonChunkedOpenAIResponse(text, title, maxTokens) {
     }
 }
 
+
+/**
+ * Retrieves an OpenAI response for the given text and title.
+ *
+ * @param {string} text - The text to be summarized.
+ * @param {string} title - The title of the news article.
+ * @param {number} maxTokens - The maximum number of tokens allowed in the response.
+ * @return {Promise<string>} A promise that resolves to the OpenAI response. If the text is empty or the title is empty, an empty string is returned. If the number of tokens in the text exceeds the maximum allowed tokens per call, the function calls getChunkedOpenAIResponse to handle the text in chunks. 
+ * Otherwise, it calls getNonChunkedOpenAIResponse to generate the response.  */
 async function getOpenAIResponse(text, title, maxTokens) {
     if (text == "" || title == "") {
         return "";
@@ -169,6 +186,12 @@ async function getOpenAIResponse(text, title, maxTokens) {
     return getNonChunkedOpenAIResponse(text, title, maxTokens);
 }
 
+/**
+ * Retrieves the content of a webpage behind a paywall by using a proxy website.
+ *
+ * @param {string} link - The URL of the webpage.
+ * @return {Promise<string>} A promise that resolves to the content of the webpage if it is successfully retrieved,
+ * or an empty string if an error occurs.                   */
 async function getProxiedContent(link) {
     try {
         console.log(`Article may be behind a PayWall :-(\nLet's try to access via proxy for ${link} ...`);
@@ -187,6 +210,13 @@ async function getProxiedContent(link) {
     }
 }
 
+/**
+ * Retrieves a summary of the text from the given link using OpenAI's GPT-4 model.
+ *
+ * @param {string} link - The URL of the webpage.
+ * @param {number} numberOfLinks - The total number of links under the same TERM search
+ * @param {string} title - The title of the news article.
+ * @return {Promise<string>} A promise that resolves to the summary of the text, or a failed summary message if the summary generation fails.   */
 const summarizeText = async (link, numberOfLinks, title) => {
     let text = await extractArticleText(link);
     let maxTokens = 150 + Math.ceil(300 / numberOfLinks);
@@ -208,6 +238,11 @@ const summarizeText = async (link, numberOfLinks, title) => {
     return response;
 };
 
+/**
+ * Checks if a given date text is recent.
+ *
+ * @param {string} dateText - The text to be checked.
+ * @return {boolean} Returns true if the date text is recent, false otherwise.  */
 const isRecent = (dateText) => {
     const today = new Date();
     const todayStr = `${today.getMonth() + 1}/${today.getDate()}/${today.getFullYear()}`;
@@ -236,6 +271,11 @@ const fetchPage = async (url, retries = 3) => {
     return null;
 };
 
+/**
+ * Calculate the relevance score and find the most common term in the given text.
+ *
+ * @param {string} text - The text to analyze.
+ * @return {object} An object containing the score and the most common term.    */
 const relevanceScoreAndMaxCommonFoundTerm = (text) => {
     let score = 0, mostCommonTerm = "", maxCommonFoundTermCount = 0;
 
@@ -278,6 +318,12 @@ const checkCloseToEmailBracketEnd = (endTime) => {
     return now >= tenMinutesBeforeEnd && now < end;
 };
 
+/**
+ * Crawls a website for articles related to given terms and returns the results.
+ *
+ * @param {string} url - The URL of the website to crawl.
+ * @param {Array<string>} terms - An array of terms to search for.
+ * @return {Promise<Object>} An object containing the results of the crawl, with each term as a key and an array of matching articles as the value. */
 const crawlWebsite = async (url, terms) => {
     let results = {};
 
@@ -328,6 +374,10 @@ const crawlWebsite = async (url, terms) => {
     return results;
 };
 
+/**
+ * Crawls multiple websites for articles related to specified terms.
+ *
+ * @return {Promise<Object>} An object containing arrays of articles for each term. */
 const crawlWebsites = async () => {
     const allResults = {};
     for (const term of terms) allResults[term] = [];
@@ -397,7 +447,11 @@ const removeRedundantArticles = async (results) => {
     return results;
 }
 
-
+/**
+ * Saves the results to a JSON file.
+ *
+ * @param {Object} results - The results to be saved.
+ * @return {Promise<boolean>} - A promise that resolves to a boolean indicating if the crawling is complete.    */
 const saveResults = async (results) => {
     console.log("Saving results...");
     const resultsPath = path.join(__dirname, `crawled_results.json`);
@@ -431,6 +485,10 @@ const saveResults = async (results) => {
     return thisIsTheTime;
 };
 
+/**
+ * Loads the previous results from the `crawled_results.json` file.
+ *
+ * @return {Object} The previous results, or an empty object if the file doesn't exist. */
 const loadPreviousResults = () => {
     console.log("Loading previous results...");
     const resultsPath = path.join(__dirname, `crawled_results.json`);
@@ -448,6 +506,11 @@ const loadPreviousResults = () => {
     }
 };
 
+/**
+ * Extracts the top articles from the given results.
+ *
+ * @param {Object} results - An object containing arrays of articles for each term.
+ * @return {Array} An array of the top articles, with a maximum length determined by the square root of the total number of articles.   */
 const extractTopArticles = (results) => {
     console.log("Extracting top articles...");
     let allArticles = [];
@@ -470,6 +533,11 @@ const extractTopArticles = (results) => {
     return potentialReturn.length < topArticles.length ? potentialReturn : topArticles;
 };
 
+/**
+ * Returns a string of the most common terms in the given object of articles, sorted by frequency and score.
+ *
+ * @param {Object} allResults - An object containing arrays of articles for each term.
+ * @return {string} A string of the most common terms, separated by '/' - DISCLAIMER: NORMALLY IT'S A SINGLE TERM        */
 function mostCommonTerms(allResults) {
     const termCount = {};
 
@@ -498,6 +566,10 @@ function mostCommonTerms(allResults) {
     return topTerms.join('/');
 }
 
+/**
+ * Loads the results from a JSON file.
+ *
+ * @return {Object} The loaded results, or null if the file doesn't exist.  */
 const loadResults = () => {
     console.log("Loading results...");
     const resultsPath = path.join(__dirname, `crawled_results.json`);
@@ -507,6 +579,13 @@ const loadResults = () => {
     return null;
 };
 
+/**
+ * Sends an email with the latest crawled news results. The email is sent at a specific time specified in the configuration.
+ * The email contains a summary of the total number of news links crawled, the most frequent term, and the top articles.
+ * The top articles are displayed in a separate section with their respective links.
+ * The function waits until the crawl is complete before sending the email.
+ *
+ * @return {Promise<void>} A promise that resolves when the email is sent successfully, or rejects with an error if there is an issue sending the email.    */
 const sendEmail = async () => {
     console.log("Sending emails...");
     const emailTime = new Date();
