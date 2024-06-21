@@ -373,6 +373,8 @@ module.exports = {
     "https://defensa.gob.es",
     "https://elordenmundial.com",
     "https://global-strategy.org",
+    "https://eleconomista.es/",
+    "https://rumbominero.com/",
     "https://ieee.es",
     "https://larazon.es",
     "https://abc.es",

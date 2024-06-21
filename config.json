@@ -10,8 +10,11 @@
     "time": {
         "email": "21:50"
     },
-    "sensitivity": 5,
-    "language": "ES",
+    "text_analysis": {
+        "topic_sensitivity": 1.5,
+        "language": "ES",
+        "max_similarity": 0.92
+    },
     "openai": {
         "api_key": "YOUR_OPENAI_APIKEY",
         "max_tokens_per_call": 8000

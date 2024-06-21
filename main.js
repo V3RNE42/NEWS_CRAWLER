@@ -7,17 +7,17 @@ const { OpenAI } = require("openai");
 const puppeteer = require('puppeteer');
 let { terms, websites } = require("./terminos");
 const config = require("./config.json");
-const { getMainTopics, sanitizeHtml } = require("./WORD_ANALYSIS/topics_extractor");
-const { coveringSameNews } = require("./WORD_ANALYSIS/natural_processing");
+const { getMainTopics, sanitizeHtml } = require("./text_analysis/topics_extractor");
+const { coveringSameNews } = require("./text_analysis/natural_processing");
 
 //IMPORTANT CONSTANTS AND SETTINGS
 const openai = new OpenAI({ apiKey: config.openai.api_key });
-const LANGUAGE = config.language;
-const SENSITIVITY = config.sensitivity;
+const LANGUAGE = config.text_analysis.language;
+const SENSITIVITY = config.text_analysis.topic_sensitivity;
 const MAX_TOKENS_PER_CALL = config.openai.max_tokens_per_call;
+const SIMILARITY_THRESHOLD = config.text_analysis.max_similarity;
 const SUMMARY_PLACEHOLDER = "placeholder";
 const FAILED_SUMMARY_MSSG = "No se pudo generar un resumen";
-const SIMILARITY_THRESHOLD = 0.85;
 
 let seenLinks = new Set();
 terms = terms.map((term) => term.toLowerCase());
@@ -329,7 +329,7 @@ const crawlWebsite = async (url, terms) => {
 
     terms.forEach((term) => { results[term] = []; }); //initialize every term in the results object
     for (const term of terms) {
-        const searchUrl = `https://www.bing.com/search?q=${encodeURIComponent(term)}+site:${encodeURIComponent(url)}&freshness=Day`;
+        const searchUrl = `https://www.bing.com/search?q=${encodeURIComponent(term)}+site:${encodeURIComponent(url)}filters=ex1%3a"ez5"`;
         const pageContent = await fetchPage(searchUrl);
         if (!pageContent) continue;
 
