@@ -19,6 +19,8 @@ const MAX_TOKENS_PER_CALL = config.openai.max_tokens_per_call;
 const SIMILARITY_THRESHOLD = config.text_analysis.max_similarity;
 let BROWSER_PATH;
 
+/** Assigns a valid browser path to the BROWSER_PATH variable based on the configuration
+ * @return {Promise<void>} A promise that resolves when the browser path is assigned.   */
 async function assignBrowserPath() {
     BROWSER_PATH = config.browser.path === "placeholder" 
         ? await findValidChromiumPath() 
