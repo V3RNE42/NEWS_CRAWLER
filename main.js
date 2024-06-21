@@ -365,7 +365,7 @@ const crawlWebsite = async (url, terms) => {
 
     terms.forEach((term) => { results[term] = []; }); //initialize every term in the results object
     for (const term of terms) {
-        const searchUrl = `https://www.bing.com/search?q=${encodeURIComponent(term)}+site:${encodeURIComponent(url)}filters=ex1%3a"ez5"`;
+        const searchUrl = `https://www.bing.com/search?q=${encodeURIComponent(term)}+site:${encodeURIComponent(url)}&filters=ex1%3a"ez5"`;
         const pageContent = await fetchPage(searchUrl);
         if (!pageContent) continue;
 
