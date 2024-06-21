@@ -76,6 +76,9 @@ The `config.json` file allows you to customize the behavior of the webcrawler. H
 - `email`: Set the hour from which the emails can be sent - obviously won't start until that hour is reached 
 - `api_key`: Set your current OpenAI API key to use the GPT-4 model for generating some email summaries.
 - `smtp_pass`: Set the SendGrid API key of your account
+- `topic_sensitivity`: Set the topic sensitivity -> The bigger the sensitivity, the less false positives qill be added, but also the total amount of scraped articles - More false negatives
+- `language`: Set the language in which the news articles will be found
+- `max_similarity`: Set the maximum cosine similarity admisible between two articles' bodies from which we'll consider both of these to be covering the same news event - making redundant at least one of these 
 
 ### Customization Guide
 
@@ -142,6 +145,9 @@ El archivo `config.json` te permite personalizar el comportamiento del webcrawle
 - `email`: Establece la hora a la cual se envían los correos electrónicos
 - `api_key`: Establece tu clave API actual de OpenAI para usar el modelo GPT-4 para generar algunos resúmenes de correos electrónicos.
 - `smtp_pass`: Establece la clave API de SendGrid de tu cuenta
+- `topic_sensitivity`: Establece la sensibilidad temática -> A mayor sensibilidad, menos posibles falsos positivos quedan añadidos, pero también se reduce el número total de artículos recogidos - Más falsos negativos
+- `language`: Establece el lenguage en que se van a encontrar las noticias recogidas
+- `max_similarity`: Establece la similitud de coseno máxima admisible entre dos cuerpos de noticias a partir del cual consideramos que ambas están cubriendo el mismo evento - y por lo tanto, al menos una de ellas es redundante
 
 ### Guía de Personalización
 
