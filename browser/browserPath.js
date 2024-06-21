@@ -64,7 +64,7 @@ const getChromiumPaths = () => {
 /**Finds a valid Chromium/Chrome executable path from a list of paths
  * @param {Array<string>} paths - The list of paths to search for a valid executable.
  * @return {Promise<string>} A Promise that resolves to the valid executable path, or rejects with an error.     */
-const findValidChromiumPath = async () => {
+async function findValidChromiumPath() {
     let paths = await getChromiumPaths();
     for (const path of paths) {
         if (fs.existsSync(path)) {

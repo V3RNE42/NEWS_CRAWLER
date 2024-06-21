@@ -17,9 +17,13 @@ const LANGUAGE = config.text_analysis.language;
 const SENSITIVITY = config.text_analysis.topic_sensitivity;
 const MAX_TOKENS_PER_CALL = config.openai.max_tokens_per_call;
 const SIMILARITY_THRESHOLD = config.text_analysis.max_similarity;
-const BROWSER_PATH = config.browser.path === "placeholder" 
-    ? await findValidChromiumPath() 
-    : config.browser.path;
+let BROWSER_PATH;
+
+async function assignBrowserPath() {
+    BROWSER_PATH = config.browser.path === "placeholder" 
+        ? await findValidChromiumPath() 
+        : config.browser.path;
+}
 
 const SUMMARY_PLACEHOLDER = "placeholder";
 const FAILED_SUMMARY_MSSG = "No se pudo generar un resumen";
@@ -417,7 +421,6 @@ const crawlWebsites = async () => {
             console.log("Stopping crawling to prepare for email sending.");
             return allResults;
         }
-
         console.log(`Crawling ${url}...`);
         await new Promise((r) => setTimeout(r, (550 + Math.floor(Math.random() * 600))));
         try {
@@ -728,6 +731,7 @@ const main = async () => {
 
 // Using IIFE to handle top-level await
 (async () => {
+    await assignBrowserPath();
     console.log(`Webcrawler scheduled to run indefinetely. Emails will be sent daily at ${config.time.email}`);
 
     while (true) {
