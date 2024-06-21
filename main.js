@@ -76,12 +76,21 @@ async function extractArticleText(url) {
     return cleanText(articleText);
 }
 
+/** Cleans the given text by removing HTML tags and trimming whitespace
+ * @param {string} text - The text to be cleaned.
+ * @return {string} The cleaned text.     */
 const cleanText = (text) => {
     text = sanitizeHtml(text, { allowedTags: [], allowedAttributes: [] });
     return text.replace(/<[^>]*>/g, ' ').trim();
 }
 
 async function getChunkedOpenAIResponse(text, title, maxTokens) {
+    /** Generates a prompt for OpenAI to generate a summary of a specific part of a news article.
+     * @param {string} news_content - The content of the news article.
+     * @param {string} news_title - The title of the news article.
+     * @param {number} current - The current part number of the news article being summarized.
+     * @param {number} total - The total number of parts in the news article.
+     * @return {string} The generated prompt for OpenAI.                                            */
     function getPrompt(news_content, news_title, current, total) {
         return `Haz un resumen del siguiente fragmento que cubre la parte ${current} de ${total}` +
             `de la siguiente noticia:\n\n\n\n${news_content}\n\n\n\n` +
@@ -123,6 +132,10 @@ async function getChunkedOpenAIResponse(text, title, maxTokens) {
  *  @returns {number} The amount of tokens      */
 const countTokens = (text) => text.trim().split(/\s+/).length;
 
+
+/** Splits a text into chunks of a maximum number of tokens per call
+ * @param {string} text - The text to be split into chunks.
+ * @return {string[]} An array of chunks, each containing a maximum of MAX_TOKENS_PER_CALL tokens. */
 function splitTextIntoChunks(text) {
     const tokens = text.split(/\s+/);
     const chunks = [];
@@ -230,7 +243,7 @@ const summarizeText = async (link, numberOfLinks, title) => {
     let count = 0;
     let url = link;
 
-    while (response === "" || countTokens(response) < 150) {
+    while ((response === "" || countTokens(text) < 150) && count < 3) {
         if (count === 0) {
             response = await getOpenAIResponse(text, title, maxTokens);
         } else if (count === 1) {
