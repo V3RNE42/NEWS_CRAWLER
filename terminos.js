@@ -377,6 +377,7 @@ module.exports = {
     "https://rumbominero.com/",
     "https://ieee.es",
     "https://larazon.es",
+    "https://www.elmundo.es",
     "https://abc.es",
     "https://elpais.com",
     "https://eldiario.es",

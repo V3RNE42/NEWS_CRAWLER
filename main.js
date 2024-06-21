@@ -118,6 +118,9 @@ async function getChunkedOpenAIResponse(text, title, maxTokens) {
     }
 }
 
+/** Counts the tokens of a string
+ *  @param {String} text The text whose tokens are to be counted
+ *  @returns {number} The amount of tokens      */
 const countTokens = (text) => text.trim().split(/\s+/).length;
 
 function splitTextIntoChunks(text) {
@@ -190,23 +193,26 @@ async function getOpenAIResponse(text, title, maxTokens) {
  * Retrieves the content of a webpage behind a paywall by using a proxy website.
  *
  * @param {string} link - The URL of the webpage.
- * @return {Promise<string>} A promise that resolves to the content of the webpage if it is successfully retrieved,
- * or an empty string if an error occurs.                   */
+ * @return {Promise<{url: string, content: string}>} A promise that resolves to an object containing the content of the webpage 
+ * and the URL of the retrieved content if it is successfully retrieved, or an empty string if an error occurs.     */
 async function getProxiedContent(link) {
     try {
         console.log(`Article may be behind a PayWall :-(\nLet's try to access via proxy for ${link} ...`);
         const browser = await puppeteer.launch();
         const page = await browser.newPage();
-        await page.goto('https://12ft.io/', { waitUntil: 'domcontentloaded' });
-        await page.type('input.px-4.w-\\[300px\\].border.border-gray-400.border-r-0', link);
-        await page.click('button.px-4.py-2.min-w-12.text-sm.leading-none.font-medium.border.border-yellow-500.bg-yellow-100.text-yellow-700.hover\\:bg-yellow-200');
+        await page.goto('https://www.removepaywall.com/', { waitUntil: 'domcontentloaded' });
+        await page.type('input#simple-search', link);
+        await page.click('button.p-2.5.ml-2.text-sm.font-medium.text-white.bg-blue-900.rounded-lg.border.border-blue-700.hover\\:bg-blue-800.focus\\:ring-4.focus\\:outline-none.focus\\:ring-blue-300.dark\\:bg-blue-900.dark\\:hover\\:bg-blue-1000.dark\\:focus\\:ring-blue-800');
         await page.waitForNavigation({ waitUntil: 'domcontentloaded' });
+
         const content = await page.evaluate(() => document.body.innerText);
+        const retrievedUrl = page.url();
+
         await browser.close();
-        return content;
+        return { url: retrievedUrl, content: content };
     } catch (error) {
         console.error('Error in fetching proxied content:', error);
-        return "";
+        return { url: "", content: "" };
     }
 }
 
@@ -214,20 +220,21 @@ async function getProxiedContent(link) {
  * Retrieves a summary of the text from the given link using OpenAI's GPT-4 model.
  *
  * @param {string} link - The URL of the webpage.
- * @param {number} numberOfLinks - The total number of links under the same TERM search
+ * @param {number} numberOfLinks - The total number of links under the same TERM search.
  * @param {string} title - The title of the news article.
- * @return {Promise<string>} A promise that resolves to the summary of the text, or a failed summary message if the summary generation fails.   */
+ * @return {Promise<{url: string, response: string}>} A promise that resolves to an object containing the summary of the text and the valid URL.  */
 const summarizeText = async (link, numberOfLinks, title) => {
     let text = await extractArticleText(link);
     let maxTokens = 150 + Math.ceil(300 / numberOfLinks);
     let response = "";
     let count = 0;
+    let url = link;
 
-    while (response === "") {
-        if (count == 0) {
+    while (response === "" || countTokens(response) < 150) {
+        if (count === 0) {
             response = await getOpenAIResponse(text, title, maxTokens);
-        } else if (count == 1) {
-            text = await getProxiedContent(link);
+        } else if (count === 1) {
+            ({ url, content: text } = await getProxiedContent(link));
             response = await getOpenAIResponse(text, title, maxTokens);
         } else {
             response = FAILED_SUMMARY_MSSG;
@@ -235,7 +242,7 @@ const summarizeText = async (link, numberOfLinks, title) => {
         count++;
     }
 
-    return response;
+    return { url, response };
 };
 
 /**
@@ -459,6 +466,7 @@ const saveResults = async (results) => {
     let topArticles = [];
     let numTopArticles = 0;
     let mostCommonTerm = "Most_Common_Term";
+    let link = "", summary = "";
     
     const thisIsTheTime = checkCloseToEmailBracketEnd(emailEndTime);
     if (thisIsTheTime) {
@@ -466,9 +474,11 @@ const saveResults = async (results) => {
         topArticles = extractTopArticles(results);
         numTopArticles = topArticles.length;
         for (let i = 0; i < numTopArticles; i++) {
-            if (topArticles[i].summary == SUMMARY_PLACEHOLDER ||
+            if (topArticles[i].summary === SUMMARY_PLACEHOLDER || 
                 topArticles[i].summary.includes(FAILED_SUMMARY_MSSG)) {
-                topArticles[i].summary = await summarizeText(topArticles[i].link, numTopArticles, topArticles[i].title);
+                ({ url: link, response: summary } = await summarizeText(topArticles[i].link, numTopArticles, topArticles[i].title));
+                topArticles[i].summary = summary;
+                topArticles[i].link = link !== "" ? link : topArticles[i].link;
             }
         }
         mostCommonTerm = mostCommonTerms(results);
@@ -607,7 +617,13 @@ const sendEmail = async () => {
     let topArticles = results.topArticles ?? [];
     let topArticleLinks = [];
 
-    let emailBody = `Estas son las ${totalLinks} noticias frescas de ${todayDate()} :<br><br>`;
+    let emailBody = `
+        <div style="text-align: center;">
+            <img src="https://raw.githubusercontent.com/V3RNE42/NEWS_CRAWLER/puppeteer_variant/assets/fresh_news.png" style="max-width: 25%; height: auto; display: block; margin-left: auto; margin-right: auto;" alt="Noticias_Frescas_LOGO">
+        </div>
+        <br>
+        Estas son las ${totalLinks} noticias frescas de ${todayDate()} :<br><br>`;
+
     if (topArticles.length) {
         emailBody += "Noticias Destacadas:<br><br>";
         topArticles.forEach((article) => {
