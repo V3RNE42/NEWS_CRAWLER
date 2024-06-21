@@ -141,13 +141,12 @@ El archivo `config.json` te permite personalizar el comportamiento del webcrawle
 
 - `sender`: Especifica el correo electrónico del remitente con una cuenta asociada smtp.sendgrid
 - `recipients`: Especifica el correo electrónico de las personas que recibirán tus correos electrónicos.
-- `crawl`: Establece la hora en la que debe comenzar el rastreo.
 - `email`: Establece la hora a la cual se envían los correos electrónicos
 - `api_key`: Establece tu clave API actual de OpenAI para usar el modelo GPT-4 para generar algunos resúmenes de correos electrónicos.
 - `smtp_pass`: Establece la clave API de SendGrid de tu cuenta
-- `topic_sensitivity`: Establece la sensibilidad temática -> A mayor sensibilidad, menos posibles falsos positivos quedan añadidos, pero también se reduce el número total de artículos recogidos - Más falsos negativos
+- `topic_sensitivity`: Establece la sensibilidad temática -> A mayor sensibilidad, menos posibles falsos positivos quedan añadidos, pero también se reduce el número total de artículos recogidos - Más falsos negativos (Va de 1 a ∞)
 - `language`: Establece el lenguage en que se van a encontrar las noticias recogidas
-- `max_similarity`: Establece la similitud de coseno máxima admisible entre dos cuerpos de noticias a partir del cual consideramos que ambas están cubriendo el mismo evento - y por lo tanto, al menos una de ellas es redundante
+- `max_similarity`: Establece la similitud de coseno máxima admisible entre dos cuerpos de noticias a partir del cual consideramos que ambas están cubriendo el mismo evento - y por lo tanto, al menos una de ellas es redundante (Va de 0 a 1)
 
 ### Guía de Personalización
 
