@@ -1,8 +1,8 @@
 const natural = require('natural');
-const TfIdf = natural.TfIdf;
+let TfIdf = natural.TfIdf;
 const { filterWords } = require("./topics_extractor");
 const sanitizeHtml = require('sanitize-html');
-const { stopWordsEn, stopwordsEs } = require("./stopWords");
+let { stopWordsEn, stopwordsEs } = require("./stopWords");
 
 function preprocessText(text, stopWords) {
     text = sanitizeHtml(text, { allowedTags: [], allowedAttributes: {} });
@@ -11,13 +11,13 @@ function preprocessText(text, stopWords) {
 
 
 function calculateSimilarity(text1, text2) {
-    const tfidf = new TfIdf();
+    let tfidf = new TfIdf();
 
     tfidf.addDocument(text1);
     tfidf.addDocument(text2);
 
-    const vector1 = [];
-    const vector2 = [];
+    let vector1 = [];
+    let vector2 = [];
 
     tfidf.tfidfs(text1, function (i, measure) {
         vector1.push(measure);
@@ -27,9 +27,9 @@ function calculateSimilarity(text1, text2) {
         vector2.push(measure);
     });
 
-    const dotProduct = vector1.reduce((sum, value, index) => sum + value * vector2[index], 0);
-    const norm1 = Math.sqrt(vector1.reduce((sum, value) => sum + value * value, 0));
-    const norm2 = Math.sqrt(vector2.reduce((sum, value) => sum + value * value, 0));
+    let dotProduct = vector1.reduce((sum, value, index) => sum + value * vector2[index], 0);
+    let norm1 = Math.sqrt(vector1.reduce((sum, value) => sum + value * value, 0));
+    let norm2 = Math.sqrt(vector2.reduce((sum, value) => sum + value * value, 0));
 
     return dotProduct / (norm1 * norm2);
 }
@@ -43,12 +43,12 @@ function calculateSimilarity(text1, text2) {
  * @param {number} [similarityTreshold=0.85] - The threshold for similarity score - decimal from 0 (minimum) to 1 (maximum)
  * @return {Promise<boolean>} A promise that resolves to true if the similarity score is greater than or equal to the similarity threshold, false otherwise. */
 async function coveringSameNews(text1, text2, spokenLanguage, similarityTreshold = 0.85) {
-    const stopwords = spokenLanguage == "ES" ? stopwordsEs : stopWordsEn;
+    let stopwords = spokenLanguage == "ES" ? stopwordsEs : stopWordsEn;
 
-    const processedText1 = preprocessText(text1, stopwords);
-    const processedText2 = preprocessText(text2, stopwords);
+    let processedText1 = preprocessText(text1, stopwords);
+    let processedText2 = preprocessText(text2, stopwords);
 
-    const similarityScore = calculateSimilarity(processedText1, processedText2);
+    let similarityScore = calculateSimilarity(processedText1, processedText2);
 
     return similarityScore >= similarityTreshold;
 }
