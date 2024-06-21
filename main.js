@@ -9,6 +9,7 @@ let { terms, websites } = require("./terminos");
 const config = require("./config.json");
 const { getMainTopics, sanitizeHtml } = require("./text_analysis/topics_extractor");
 const { coveringSameNews } = require("./text_analysis/natural_processing");
+const { findValidChromiumPath } = require("./browser/browserPath");
 
 //IMPORTANT CONSTANTS AND SETTINGS
 const openai = new OpenAI({ apiKey: config.openai.api_key });
@@ -16,6 +17,10 @@ const LANGUAGE = config.text_analysis.language;
 const SENSITIVITY = config.text_analysis.topic_sensitivity;
 const MAX_TOKENS_PER_CALL = config.openai.max_tokens_per_call;
 const SIMILARITY_THRESHOLD = config.text_analysis.max_similarity;
+const BROWSER_PATH = config.browser.path === "placeholder" 
+    ? await findValidChromiumPath() 
+    : config.browser.path;
+
 const SUMMARY_PLACEHOLDER = "placeholder";
 const FAILED_SUMMARY_MSSG = "No se pudo generar un resumen";
 
@@ -40,7 +45,8 @@ const todayDate = () => new Date().toISOString().split("T")[0];
 async function extractArticleText(url) {
     const browser = await puppeteer.launch({
         headless: true,
-        args: ['--no-sandbox', '--disable-setuid-sandbox']
+        args: ['--no-sandbox', '--disable-setuid-sandbox'],
+        executablePath: BROWSER_PATH
     });
     const page = await browser.newPage();
     await page.goto(url, { waitUntil: 'domcontentloaded' });
@@ -211,7 +217,11 @@ async function getOpenAIResponse(text, title, maxTokens) {
 async function getProxiedContent(link) {
     try {
         console.log(`Article may be behind a PayWall :-(\nLet's try to access via proxy for ${link} ...`);
-        const browser = await puppeteer.launch();
+        const browser = await puppeteer.launch({
+            headless: true,
+            args: ['--no-sandbox', '--disable-setuid-sandbox'],
+            executablePath: BROWSER_PATH
+        });
         const page = await browser.newPage();
         await page.goto('https://www.removepaywall.com/', { waitUntil: 'domcontentloaded' });
         await page.type('input#simple-search', link);

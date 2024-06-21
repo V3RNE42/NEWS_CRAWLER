@@ -8,7 +8,10 @@
         "smtp_pass": "YOUR_SENDGRID_APIKEY"
     },
     "time": {
-        "email": "21:50"
+        "email": "23:55"
+    },
+    "browser": {
+        "path": "placeholder"
     },
     "text_analysis": {
         "topic_sensitivity": 1.5,
