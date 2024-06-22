@@ -16,7 +16,7 @@
     "text_analysis": {
         "topic_sensitivity": 1.5,
         "language": "ES",
-        "max_similarity": 0.92
+        "max_similarity": 0.9
     },
     "openai": {
         "api_key": "YOUR_OPENAI_APIKEY",
