@@ -96,17 +96,17 @@ const cleanText = (text) => {
     return text.replace(/<[^>]*>/g, ' ').trim();
 }
 
-async function getChunkedOpenAIResponse(text, title, maxTokens) {
+async function getChunkedOpenAIResponse(text, topic, maxTokens) {
     /** Generates a prompt for OpenAI to generate a summary of a specific part of a news article.
      * @param {string} news_content - The content of the news article.
-     * @param {string} news_title - The title of the news article.
+     * @param {string} news_topic - The topic of the news article.
      * @param {number} current - The current part number of the news article being summarized.
      * @param {number} total - The total number of parts in the news article.
      * @return {string} The generated prompt for OpenAI.                                            */
-    function getPrompt(news_content, news_title, current, total) {
+    function getPrompt(news_content, news_topic, current, total) {
         return `Haz un resumen del siguiente fragmento que cubre la parte ${current} de ${total}` +
             `de la siguiente noticia:\n\n\n\n${news_content}\n\n\n\n` +
-            `Ignora todo texto que no tenga que ver con el titular de la noticia: ${news_title}`;
+            `Ignora todo texto que no tenga que ver con el tema de la noticia: ${news_topic}`;
     }
 
     try {
@@ -115,7 +115,7 @@ async function getChunkedOpenAIResponse(text, title, maxTokens) {
         maxTokens = Math.floor(maxTokens / chunks.length);
 
         for (let i = 0; i < chunks.length; i++) {
-            let content = getPrompt(chunks[i], title, (i + 1), chunks.length);
+            let content = getPrompt(chunks[i], topic, (i + 1), chunks.length);
             const response = await openai.chat.completions.create({
                 model: "gpt-4",
                 messages: [{ role: "user", content: content }],
@@ -169,8 +169,8 @@ function splitTextIntoChunks(text) {
     return chunks;
 }
 
-async function getNonChunkedOpenAIResponse(text, title, maxTokens) {
-    text = `Haz un resumen de la siguiente noticia:\n\n\n\n${text}\n\n\n\nIgnora todo texto que no tenga que ver con el titular de la noticia: ${title}`;
+async function getNonChunkedOpenAIResponse(text, topic, maxTokens) {
+    text = `Haz un resumen de la siguiente noticia:\n\n\n\n${text}\n\n\n\nIgnora todo texto que no tenga que ver con el tema de la noticia: ${topic}`;
     try {
         const response = await openai.chat.completions.create({
             model: "gpt-4",
@@ -198,20 +198,20 @@ async function getNonChunkedOpenAIResponse(text, title, maxTokens) {
  * Retrieves an OpenAI response for the given text and title.
  *
  * @param {string} text - The text to be summarized.
- * @param {string} title - The title of the news article.
+ * @param {string} topic - The topic of the news article.
  * @param {number} maxTokens - The maximum number of tokens allowed in the response.
- * @return {Promise<string>} A promise that resolves to the OpenAI response. If the text is empty or the title is empty, an empty string is returned. If the number of tokens in the text exceeds the maximum allowed tokens per call, the function calls getChunkedOpenAIResponse to handle the text in chunks. 
+ * @return {Promise<string>} A promise that resolves to the OpenAI response. If the text is empty or the topic is empty, an empty string is returned. If the number of tokens in the text exceeds the maximum allowed tokens per call, the function calls getChunkedOpenAIResponse to handle the text in chunks. 
  * Otherwise, it calls getNonChunkedOpenAIResponse to generate the response.  */
-async function getOpenAIResponse(text, title, maxTokens) {
-    if (text == "" || title == "") {
+async function getOpenAIResponse(text, topic, maxTokens) {
+    if (text == "" || topic == "") {
         return "";
     }
 
     if (countTokens(text) >= MAX_TOKENS_PER_CALL) {
-        return getChunkedOpenAIResponse(text, title, maxTokens);
+        return getChunkedOpenAIResponse(text, topic, maxTokens);
     }
 
-    return getNonChunkedOpenAIResponse(text, title, maxTokens);
+    return getNonChunkedOpenAIResponse(text, topic, maxTokens);
 }
 
 /**
@@ -246,14 +246,15 @@ async function getProxiedContent(link) {
 }
 
 /**
- * Retrieves a summary of the text from the given link using OpenAI's GPT-4 model.
+ * Retrieves a summary of the text using OpenAI's GPT-4 model.
  *
- * @param {string} link - The URL of the webpage.
- * @param {number} numberOfLinks - The total number of links under the same TERM search.
- * @param {string} title - The title of the news article.
+ * @param {string} link - The URL of the webpage
+ * @param {string} fullText - The text content of the news article
+ * @param {number} numberOfLinks - The total number of links under the same TERM search
+ * @param {string} topic - The topic of the news article
  * @return {Promise<{url: string, response: string}>} A promise that resolves to an object containing the summary of the text and the valid URL.  */
-const summarizeText = async (link, numberOfLinks, title) => {
-    let text = await extractArticleText(link);
+const summarizeText = async (link, fullText, numberOfLinks, topic) => {
+    let text = fullText;
     let maxTokens = 150 + Math.ceil(300 / numberOfLinks);
     let response = "";
     let count = 0;
@@ -261,10 +262,10 @@ const summarizeText = async (link, numberOfLinks, title) => {
 
     while ((response === "" || countTokens(text) < 150) && count < 3) {
         if (count === 0) {
-            response = await getOpenAIResponse(text, title, maxTokens);
+            response = await getOpenAIResponse(text, topic, maxTokens);
         } else if (count === 1) {
             ({ url, content: text } = await getProxiedContent(link));
-            response = await getOpenAIResponse(text, title, maxTokens);
+            response = await getOpenAIResponse(text, topic, maxTokens);
         } else {
             response = FAILED_SUMMARY_MSSG;
         }
@@ -504,7 +505,11 @@ const saveResults = async (results) => {
         for (let i = 0; i < numTopArticles; i++) {
             if (topArticles[i].summary === SUMMARY_PLACEHOLDER || 
                 topArticles[i].summary.includes(FAILED_SUMMARY_MSSG)) {
-                ({ url: link, response: summary } = await summarizeText(topArticles[i].link, numTopArticles, topArticles[i].title));
+                ({ url: link, response: summary } = await summarizeText(
+                    topArticles[i].link,
+                    topArticles[i].fullText,
+                    topArticles[i].term, 
+                    topArticles[i].title));
                 topArticles[i].summary = summary;
                 topArticles[i].link = link !== "" ? link : topArticles[i].link;
             }
