@@ -530,22 +530,34 @@ const saveResults = async (results) => {
 
 /**
  * Loads the previous results from the `crawled_results.json` file.
- *
- * @return {Object} The previous results, or an empty object if the file doesn't exist. */
+ * @return {Object} The previous results, or an empty object if the file doesn't exist or cannot be parsed. */
 const loadPreviousResults = () => {
     console.log("Loading previous results...");
-    const resultsPath = path.join(__dirname, `crawled_results.json`);
-    if (fs.existsSync(resultsPath)) {
-        const previousResults = JSON.parse(fs.readFileSync(resultsPath));
-        seenLinks = new Set();
-        for (const articles of Object.values(previousResults.results)) {
-            articles.forEach(article => seenLinks.add(article.link));
+    const resultsPath = path.join(__dirname, 'crawled_results.json');
+
+    try {
+        if (fs.existsSync(resultsPath)) {
+            const fileContent = fs.readFileSync(resultsPath, 'utf8');
+            const previousResults = JSON.parse(fileContent);
+
+            if (!previousResults.results) {
+                throw new Error('Invalid results structure');
+            }
+
+            let seenLinks = new Set();
+            for (const articles of Object.values(previousResults.results)) {
+                articles.forEach(article => seenLinks.add(article.link));
+            }
+
+            return previousResults.results;
+        } else {
+            throw new Error('Results file does not exist');
         }
-        return previousResults.results;
-    } else {
-        let previous_results = {};
-        terms.forEach((term) => { previous_results[term] = [] });
-        return previous_results;
+    } catch (err) {
+        console.error("Error loading or parsing results file:", err);
+        let previousResults = {};
+        terms.forEach(term => { previousResults[term] = []; });
+        return previousResults;
     }
 };
 
