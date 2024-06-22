@@ -667,7 +667,8 @@ const sendEmail = async () => {
     }
 
     while (!fs.existsSync(path.join(__dirname, "crawl_complete.flag")) || emailTime.getTime() > Date.now()) {
-        await new Promise((r) => setTimeout(r, 45000));
+        console.log("Waiting...");
+        await new Promise((r) => setTimeout(r, 90000));
     }
 
     let topArticleLinks = [];
