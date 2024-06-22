@@ -544,7 +544,7 @@ const loadPreviousResults = () => {
         return previousResults.results;
     } else {
         let previous_results = {};
-        terms.forEach((term) => { previous_results[term] = [] })
+        terms.forEach((term) => { previous_results[term] = [] });
         return previous_results;
     }
 };
