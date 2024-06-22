@@ -400,7 +400,6 @@ const crawlWebsite = async (url, terms) => {
                             seenLinks.add(link);
                             const summary = SUMMARY_PLACEHOLDER;
                             results[mostCommonTerm].push({ title, link, summary, score, term: mostCommonTerm, fullText });
-                            console.log(`Found article: ${title} - ${link}`);
                         }
                     }
                 }
