@@ -635,19 +635,41 @@ const sendEmail = async () => {
     const [emailHour, emailMinute] = config.time.email.split(":");
     emailTime.setHours(emailHour, emailMinute, 0, 0);
 
-    while (!fs.existsSync(path.join(__dirname, "crawl_complete.flag")) || emailTime.getTime() > Date.now()) {
-        await new Promise((r) => setTimeout(r, 60000));
-    }
-
     const results = loadResults();
     const sender = config.email.sender;
     const recipients = config.email.recipients;
     const totalLinks = Object.values(results.results).flat().length ?? 0;
     const sortedResults = Object.entries(results.results).sort((a, b) => b[1].length - a[1].length) ?? [];
 
-    const mostFrequentTerm = results.mostCommonTerm ?? EMPTY_STRING;
+    let mostFrequentTerm = results.mostCommonTerm ?? EMPTY_STRING;
     const subject = `Noticias Frescas ${todayDate()} - ${mostFrequentTerm}`;
     let topArticles = results.topArticles ?? [];
+
+    //Edge case of summary not being present
+    for (let index = 0; index < topArticles.length; index++) {
+        let link = EMPTY_STRING, summary = EMPTY_STRING;
+        if (topArticles[i].summary === SUMMARY_PLACEHOLDER ||
+            topArticles[i].summary.includes(FAILED_SUMMARY_MSSG)) {
+            ({ url: link, response: summary } = await summarizeText(
+                topArticles[i].link,
+                topArticles[i].fullText,
+                topArticles[i].term,
+                topArticles[i].title
+            ));
+            topArticles[i].summary = summary;
+            topArticles[i].link = link !== EMPTY_STRING ? link : topArticles[i].link;
+        }
+    }
+
+    //Edge case of mostFrequentTerm being the default "Most_Common_Term"
+    if (mostFrequentTerm === "Most_Common_Term" || mostFrequentTerm === "") {
+        mostFrequentTerm = mostCommonTerms(results);
+    }
+
+    while (!fs.existsSync(path.join(__dirname, "crawl_complete.flag")) || emailTime.getTime() > Date.now()) {
+        await new Promise((r) => setTimeout(r, 45000));
+    }
+
     let topArticleLinks = [];
 
     let emailBody = `
@@ -664,7 +686,7 @@ const sendEmail = async () => {
             topArticleLinks.push(article.link);
         });
     } else {
-        emailBody += `<b>NO encontré noticias relevantes hoy</b>`;
+        emailBody += `<b>NO encontré noticias destacadas hoy</b><br>`;
     }
 
     emailBody += "<br>"
@@ -712,24 +734,25 @@ const sendEmail = async () => {
 };
 
 const main = async () => {
-    let proceedToSendEmail;
     let resultados;
-    while (true) {
+    let keepGoing = !(checkCloseToEmailBracketEnd(emailEndTime));
+
+    while (keepGoing) {
+        if (checkCloseToEmailBracketEnd(emailEndTime)) {
+            keepGoing = false;
+            break;
+        }
         resultados = loadPreviousResults();
         const results = await crawlWebsites();
         for (const [term, articles] of Object.entries(results)) {
             resultados[term].push(...articles);
         }
-        proceedToSendEmail = await saveResults(resultados);
-        if (checkCloseToEmailBracketEnd(emailEndTime)) {
-            console.log("Stopping crawling to prepare for email sending.");
-            break;
-        }
-    }
-    /**Edge case of checkCloseToEmailBracketEnd(emailEndTime) becoming true 
-     * RIGHT AFTER saveResults(resultados), but BEFORE starting a new cycle   */
-    if (!proceedToSendEmail) {
+
         await saveResults(resultados);
+    }
+
+    if (!fs.existsSync(path.join(__dirname, "crawl_complete.flag"))) {
+        fs.writeFileSync(path.join(__dirname, "crawl_complete.flag"), "Crawling complete");
     }
 
     await sendEmail();
