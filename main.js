@@ -21,6 +21,7 @@ let BROWSER_PATH;
 
 const SUMMARY_PLACEHOLDER = "placeholder";
 const FAILED_SUMMARY_MSSG = "No se pudo generar un resumen";
+const EMPTY_STRING = "";
 
 let seenLinks = new Set();
 terms = terms.map((term) => term.toLowerCase());
@@ -78,7 +79,7 @@ async function extractArticleText(url) {
 
     await browser.close();
 
-    if (articleText === "") {
+    if (articleText === EMPTY_STRING) {
         const response = await fetch(url);
         const html = await response.text();
         const $ = cheerio.load(html);
@@ -111,7 +112,7 @@ async function getChunkedOpenAIResponse(text, topic, maxTokens) {
 
     try {
         const chunks = splitTextIntoChunks(text);
-        let respuesta = "";
+        let respuesta = EMPTY_STRING;
         maxTokens = Math.floor(maxTokens / chunks.length);
 
         for (let i = 0; i < chunks.length; i++) {
@@ -128,14 +129,14 @@ async function getChunkedOpenAIResponse(text, topic, maxTokens) {
             });
 
             for await (const chunkResponse of response) {
-                respuesta += chunkResponse.choices[0]?.delta?.content || "";
+                respuesta += chunkResponse.choices[0]?.delta?.content || EMPTY_STRING;
             }
         }
 
         return respuesta;
     } catch (error) {
         console.error('Error in OpenAI response:', error);
-        return "";
+        return EMPTY_STRING;
     }
 }
 
@@ -151,7 +152,7 @@ const countTokens = (text) => text.trim().split(/\s+/).length;
 function splitTextIntoChunks(text) {
     const tokens = text.split(/\s+/);
     const chunks = [];
-    let currentChunk = "";
+    let currentChunk = EMPTY_STRING;
 
     for (const token of tokens) {
         if ((currentChunk + " " + token).length <= MAX_TOKENS_PER_CALL) {
@@ -182,14 +183,14 @@ async function getNonChunkedOpenAIResponse(text, topic, maxTokens) {
             frequency_penalty: 0.0,
             presence_penalty: 0.0,
         });
-        let respuesta = "";
+        let respuesta = EMPTY_STRING;
         for await (const chunk of response) {
-            respuesta += chunk.choices[0]?.delta?.content || "";
+            respuesta += chunk.choices[0]?.delta?.content || EMPTY_STRING;
         }
         return respuesta;
     } catch (error) {
         console.error('Error in OpenAI response:', error);
-        return "";
+        return EMPTY_STRING;
     }
 }
 
@@ -203,8 +204,8 @@ async function getNonChunkedOpenAIResponse(text, topic, maxTokens) {
  * @return {Promise<string>} A promise that resolves to the OpenAI response. If the text is empty or the topic is empty, an empty string is returned. If the number of tokens in the text exceeds the maximum allowed tokens per call, the function calls getChunkedOpenAIResponse to handle the text in chunks. 
  * Otherwise, it calls getNonChunkedOpenAIResponse to generate the response.  */
 async function getOpenAIResponse(text, topic, maxTokens) {
-    if (text == "" || topic == "") {
-        return "";
+    if (text == EMPTY_STRING || topic == EMPTY_STRING) {
+        return EMPTY_STRING;
     }
 
     if (countTokens(text) >= MAX_TOKENS_PER_CALL) {
@@ -241,7 +242,7 @@ async function getProxiedContent(link) {
         return { url: retrievedUrl, content: content };
     } catch (error) {
         console.error('Error in fetching proxied content:', error);
-        return { url: "", content: "" };
+        return { url: EMPTY_STRING, content: EMPTY_STRING };
     }
 }
 
@@ -256,11 +257,11 @@ async function getProxiedContent(link) {
 const summarizeText = async (link, fullText, numberOfLinks, topic) => {
     let text = fullText;
     let maxTokens = 150 + Math.ceil(300 / numberOfLinks);
-    let response = "";
+    let response = EMPTY_STRING;
     let count = 0;
     let url = link;
 
-    while ((response === "" || countTokens(text) < 150) && count < 3) {
+    while ((response === EMPTY_STRING || countTokens(text) < 150) && count < 3) {
         if (count === 0) {
             response = await getOpenAIResponse(text, topic, maxTokens);
         } else if (count === 1) {
@@ -314,7 +315,7 @@ const fetchPage = async (url, retries = 3) => {
  * @param {string} text - The text to analyze.
  * @return {object} An object containing the score and the most common term.    */
 const relevanceScoreAndMaxCommonFoundTerm = (text) => {
-    let score = 0, mostCommonTerm = "", maxCommonFoundTermCount = 0;
+    let score = 0, mostCommonTerm = EMPTY_STRING, maxCommonFoundTermCount = 0;
 
     for (const term of terms) {
         const regex = new RegExp("\\b" + term + "\\b", 'ig');
@@ -494,7 +495,7 @@ const saveResults = async (results) => {
     let topArticles = [];
     let numTopArticles = 0;
     let mostCommonTerm = "Most_Common_Term";
-    let link = "", summary = "";
+    let link = EMPTY_STRING, summary = EMPTY_STRING;
     
     const thisIsTheTime = checkCloseToEmailBracketEnd(emailEndTime);
     if (thisIsTheTime) {
@@ -510,7 +511,7 @@ const saveResults = async (results) => {
                     topArticles[i].term, 
                     topArticles[i].title));
                 topArticles[i].summary = summary;
-                topArticles[i].link = link !== "" ? link : topArticles[i].link;
+                topArticles[i].link = link !== EMPTY_STRING ? link : topArticles[i].link;
             }
         }
         mostCommonTerm = mostCommonTerms(results);
@@ -644,7 +645,7 @@ const sendEmail = async () => {
     const totalLinks = Object.values(results.results).flat().length ?? 0;
     const sortedResults = Object.entries(results.results).sort((a, b) => b[1].length - a[1].length) ?? [];
 
-    const mostFrequentTerm = results.mostCommonTerm ?? "";
+    const mostFrequentTerm = results.mostCommonTerm ?? EMPTY_STRING;
     const subject = `Noticias Frescas ${todayDate()} - ${mostFrequentTerm}`;
     let topArticles = results.topArticles ?? [];
     let topArticleLinks = [];
@@ -670,7 +671,7 @@ const sendEmail = async () => {
 
     sortedResults.forEach(([term, articles]) => {
         if (articles.length) {
-            emailBody += `<b>${term.toUpperCase()} - ${articles.length} link${articles.length === 1 ? "" : "s"}</b><br>`;
+            emailBody += `<b>${term.toUpperCase()} - ${articles.length} link${articles.length === 1 ? EMPTY_STRING : "s"}</b><br>`;
             articles.forEach((article) => {
                 let isTopArticle = topArticleLinks.includes(article.link);
                 emailBody += `<a href="${article.link}" style="color: ${isTopArticle ? "red" : "blue"};">${article.title}</a><br>`;
