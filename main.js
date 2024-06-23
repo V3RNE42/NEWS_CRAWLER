@@ -3,6 +3,7 @@ const nodemailer = require("nodemailer");
 const fs = require("fs");
 const path = require("path");
 const cheerio = require('cheerio');
+const axios = require("axios");
 const { OpenAI } = require("openai");
 const puppeteer = require('puppeteer');
 const { Worker, isMainThread, parentPort, workerData } = require('worker_threads');
@@ -28,7 +29,19 @@ const EMPTY_STRING = "";
 const CRAWLED_RESULTS_JSON = "crawled_results.json";
 const CRAWL_COMPLETE_FLAG = "crawl_complete.flag";
 
-let seenLinks = new Set();
+class AsyncSet {
+    constructor() {
+        this.set = new Set();
+    }
+    async has(item) {
+        return this.set.has(item);
+    }
+    async add(item) {
+        this.set.add(item);
+    }
+}
+
+let seenLinks = new AsyncSet();
 terms = terms.map((term) => term.toLowerCase());
 
 const parseTime = (timeStr) => {
@@ -37,6 +50,41 @@ const parseTime = (timeStr) => {
 };
 
 const emailEndTime = parseTime(config.time.email);
+
+let currentSearchEngineIndex = 0;
+
+const searchEngines = [
+    {
+        name: 'Google',
+        url: (term, site) => `https://www.google.com/search?q=${encodeURIComponent(term)}+site:${encodeURIComponent(site)}&tbm=nws`,
+        resultSelector: "div.g",
+        titleSelector: "h3.r",
+        linkSelector: "a",
+        dateSelector: "span.f"
+    },
+    {
+        name: 'Bing',
+        url: (term, site) => `https://www.bing.com/search?q=${encodeURIComponent(term)}+site:${encodeURIComponent(site)}&filters=ex1%3a"ez5"`,
+        resultSelector: "li.b_algo",
+        titleSelector: "h2",
+        linkSelector: "a",
+        dateSelector: "span.news_dt"
+    },
+    {
+        name: 'DuckDuckGo',
+        url: (term, site) => `https://html.duckduckgo.com/html/?q=${encodeURIComponent(term)}+site:${encodeURIComponent(site)}`,
+        resultSelector: ".result",
+        titleSelector: "h2.result__title",
+        linkSelector: "a.result__a",
+        dateSelector: "span.result__timestamp"
+    }
+];
+
+const getNextSearchEngine = () => {
+    const engine = searchEngines[currentSearchEngineIndex];
+    currentSearchEngineIndex = (currentSearchEngineIndex + 1) % searchEngines.length;
+    return engine;
+};
 
 //FUNCTIONS
 /** Assigns a valid browser path to the BROWSER_PATH variable based on the configuration
@@ -389,61 +437,73 @@ function createWorker(workerData) {
  * @param {string} url - The URL of the website to crawl.
  * @param {Array<string>} terms - An array of terms to search for.
  * @return {Promise<Object>} An object containing the results of the crawl, with each term as a key and an array of matching articles as the value. */
-const crawlWebsite = async (url, terms) => {
+async function crawlWebsite(url, terms, crapedLinks) {
     let results = {};
+    terms.forEach(term => results[term] = []);
 
-    terms.forEach((term) => { results[term] = []; });
-    for (const term of terms) {
-        const searchUrl = `https://www.bing.com/search?q=${encodeURIComponent(term)}+site:${encodeURIComponent(url)}&filters=ex1%3a"ez5"`;
+    try {
         await rateLimiter.removeTokens(1);
-        const pageContent = await fetchPage(searchUrl);
-        if (!pageContent) continue;
+        const response = await axios.get(url, {
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            },
+            timeout: 10000 // 10 seconds timeout
+        });
+        const $ = cheerio.load(response.data);
 
-        const $ = cheerio.load(pageContent);
-        const articleElements = $("li.b_algo");
+        const linkPromises = $('a').map(async (index, element) => {
+            const link = $(element).attr('href');
+            if (!link) return null;
 
-        const articlePromises = articleElements.map(async (i, article) => {
-            if (checkCloseToEmailBracketEnd(emailEndTime)) {
-                return null;
-            }
+            try {
+                const fullLink = new URL(link, url).href;
 
-            const titleElement = $(article).find("h2");
-            const linkElement = titleElement.find("a");
-            const dateElement = $(article).find("span.news_dt");
+                // Concurrently check if the link is in seenLinks
+                if (fullLink.startsWith(url) && !(await crapedLinks.has(fullLink))) {
+                    const title = cleanText($(element).text().trim());
+                    const surroundingText = cleanText($(element).parent().text().trim());
+                    const dateText = $(element).closest('article,div,section').find('time').text().trim();
 
-            if (titleElement && linkElement && dateElement) {
-                const title = titleElement.text();
-                const link = normalizeUrl(linkElement.attr("href"));
-                const dateText = dateElement.text();
+                    if (isRecent(dateText)) {
 
-                if (seenLinks.has(link) || link === url) return null;
+                        const { score, mostCommonTerm } = relevanceScoreAndMaxCommonFoundTerm(title + ' ' + surroundingText);
 
-                if (isRecent(dateText)) {
-                    await rateLimiter.removeTokens(1);
-                    let fullText = await extractArticleText(link);
-                    let { score, mostCommonTerm } = relevanceScoreAndMaxCommonFoundTerm(fullText);
-                    if (score > 0) {
-                        let topics = getMainTopics(fullText, LANGUAGE, SENSITIVITY);
-                        if (topics.some(topic => terms.includes(topic.toLowerCase()))) {
-                            seenLinks.add(link);
-                            const summary = STRING_PLACEHOLDER;
-                            return { title, link, summary, score, term: mostCommonTerm, fullText };
+                        if (score > 0) {
+                            await crapedLinks.add(fullLink);
+                            console.log(`Added article! - ${fullLink}`);
+                            return {
+                                title: title,
+                                link: fullLink,
+                                summary: STRING_PLACEHOLDER,
+                                score: score,
+                                term: mostCommonTerm,
+                                fullText: STRING_PLACEHOLDER,
+                                date: dateText
+                            };
                         }
                     }
                 }
+            } catch (error) {
+                console.warn(`Warning: Error processing link ${link} from ${url}: ${error.message}`);
             }
             return null;
         }).get();
 
-        const articles = (await Promise.all(articlePromises)).filter(article => article !== null);
-        articles.forEach(article => {
-            results[article.term].push(article);
+        const processedLinks = (await Promise.all(linkPromises)).filter(link => link !== null);
+
+        processedLinks.forEach(link => {
+            if (results[link.term]) {
+                results[link.term].push(link);
+            } else {
+                results[link.term] = [link];
+            }
         });
+    } catch (error) {
+        console.error(`Error crawling ${url}: ${error.message}`);
     }
 
     return results;
-};
-
+}
 /**
  * Crawls multiple websites for articles related to specified terms.
  *
@@ -515,6 +575,40 @@ const removeRedundantArticles = async (results) => {
     return results;
 }
 
+async function arrangeArticles(results) {
+    let reorganizedResults = {};
+
+    terms.forEach(term => {
+        reorganizedResults[term] = [];
+    });
+
+    for (const [term, articles] of Object.entries(results)) {
+        for (let article of articles) {
+            if (article.fullText === STRING_PLACEHOLDER) {
+                try {
+                    article.fullText = await extractArticleText(article.link);
+                } catch (error) {
+                    console.error(`Error extracting text from ${article.link}: ${error.message}`);
+                    continue; // Skip this article if text extraction fails
+                }
+            }
+
+            let mainTopics = getMainTopics(article.fullText, LANGUAGE, SENSITIVITY);
+            if (!mainTopics.some(topic => terms.includes(topic.toLowerCase()))) {
+                continue; // Skip this article if it's not relevant
+            }
+
+            let { score, mostCommonTerm } = relevanceScoreAndMaxCommonFoundTerm(article.fullText);
+            article.score = score;
+            article.term = mostCommonTerm;
+
+            reorganizedResults[mostCommonTerm].push(article);
+        }
+    }
+
+    return reorganizedResults;
+}
+
 /**
  * Saves the results to a JSON file.
  *
@@ -531,6 +625,7 @@ const saveResults = async (results) => {
 
     const thisIsTheTime = checkCloseToEmailBracketEnd(emailEndTime);
     if (thisIsTheTime) {
+        results = await arrangeArticles(results);
         results = await removeRedundantArticles(results);
         topArticles = extractTopArticles(results);
         numTopArticles = topArticles.length;
@@ -846,7 +941,7 @@ if (isMainThread) {
 } else {
     // Worker thread code
     const { chunk, terms, seenLinks: initialSeenLinks } = workerData;
-    seenLinks = new Set(initialSeenLinks);
+    let seenLinks = new Set(initialSeenLinks);
 
     (async () => {
         const results = {};
@@ -859,7 +954,7 @@ if (isMainThread) {
             }
             console.log(`Crawling ${url}...`);
             try {
-                const websiteResults = await crawlWebsite(url, terms);
+                const websiteResults = await crawlWebsite(url, terms, seenLinks);
                 for (const [term, articles] of Object.entries(websiteResults)) {
                     results[term].push(...articles);
                 }
