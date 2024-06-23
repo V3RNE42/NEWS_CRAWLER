@@ -21,6 +21,8 @@ const LANGUAGE = config.text_analysis.language;
 const SENSITIVITY = config.text_analysis.topic_sensitivity;
 const MAX_TOKENS_PER_CALL = config.openai.max_tokens_per_call;
 const SIMILARITY_THRESHOLD = config.text_analysis.max_similarity;
+const MAX_RETRIES_PER_FETCH = 3; //to be managed by user configuration
+const INITIAL_DEALY = 2000; //to be managed by user configuration
 let BROWSER_PATH;
 
 const STRING_PLACEHOLDER = "placeholder";
@@ -96,6 +98,8 @@ async function assignBrowserPath() {
 }
 
 const todayDate = () => new Date().toISOString().split("T")[0];
+
+const sleep = async (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 /**
  * Extracts the text content of an article from a given URL.
@@ -345,22 +349,28 @@ const isRecent = (dateText) => {
     );
 };
 
-const fetchPage = async (url, retries = 3) => {
-    for (let i = 0; i < retries; i++) {
-        try {
-            await rateLimiter.removeTokens(1);
-            const response = await fetch(url);
-            if (!response.ok)
-                throw new Error(`HTTP error! status: ${response.status}`);
-            return await response.text();
-        } catch (error) {
-            console.warn(`Attempt ${i + 1} for URL ${url} failed: ${error}`);
-            await new Promise((r) => setTimeout(r, 2 ** i * 800));
+async function fetchWithRetry(url, retries = 0, initialDelay = INITIAL_DEALY) {
+    try {
+        const randomDelay = Math.floor(Math.random() * 3000) + 1000;
+        await sleep(randomDelay);
+        await rateLimiter.removeTokens(1);
+        const response = await axios.get(url, {
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            },
+            timeout: 15000
+        });
+        return response.data;
+    } catch (error) {
+        if (retries >= MAX_RETRIES_PER_FETCH) {
+            throw error;
         }
+        const delay = initialDelay * Math.pow(2, retries);
+        console.log(`Attempt ${retries + 1} failed for ${url}. Retrying in ${delay}ms...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        return fetchWithRetry(url, retries + 1, delay);
     }
-    console.error(`All retries failed for URL ${url}`);
-    return null;
-};
+}
 
 /**
  * Calculate the relevance score and find the most common term in the given text.
@@ -431,46 +441,36 @@ function createWorker(workerData) {
     });
 }
 
-/**
- * Crawls a website for articles related to given terms and returns the results.
- *
- * @param {string} url - The URL of the website to crawl.
- * @param {Array<string>} terms - An array of terms to search for.
- * @return {Promise<Object>} An object containing the results of the crawl, with each term as a key and an array of matching articles as the value. */
-async function crawlWebsite(url, terms, crapedLinks) {
+async function crawlWebsite(url, terms, scrapedLinks, maxRetries = 3) {
     let results = {};
     terms.forEach(term => results[term] = []);
 
     try {
-        await rateLimiter.removeTokens(1);
-        const response = await axios.get(url, {
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-            },
-            timeout: 10000 // 10 seconds timeout
-        });
-        const $ = cheerio.load(response.data);
+        const html = await fetchWithRetry(url, maxRetries);
+        const $ = cheerio.load(html);
 
         const linkPromises = $('a').map(async (index, element) => {
             const link = $(element).attr('href');
             if (!link) return null;
 
             try {
-                const fullLink = new URL(link, url).href;
+                const fullLink = normalizeUrl(new URL(link, url).href);
 
-                // Concurrently check if the link is in seenLinks
-                if (fullLink.startsWith(url) && !(await crapedLinks.has(fullLink))) {
+                if (isWebsiteValid(normalizeUrl(url), fullLink) && !(await scrapedLinks.has(fullLink))) {
                     const title = cleanText($(element).text().trim());
                     const surroundingText = cleanText($(element).parent().text().trim());
                     const dateText = $(element).closest('article,div,section').find('time').text().trim();
 
                     if (isRecent(dateText)) {
-
                         const { score, mostCommonTerm } = relevanceScoreAndMaxCommonFoundTerm(title + ' ' + surroundingText);
 
                         if (score > 0) {
-                            await crapedLinks.add(fullLink);
+                            const randomDelay = Math.floor(Math.random() * 1000) + 500;
+                            await sleep(randomDelay);
+
+                            await scrapedLinks.add(fullLink);
                             console.log(`Added article! - ${fullLink}`);
+
                             return {
                                 title: title,
                                 link: fullLink,
@@ -499,11 +499,39 @@ async function crawlWebsite(url, terms, crapedLinks) {
             }
         });
     } catch (error) {
-        console.error(`Error crawling ${url}: ${error.message}`);
+        console.error(`Error crawling ${url} after ${maxRetries} retries: ${error.message}`);
+        if (error.response) {
+            console.error(`Status: ${error.response.status}, Data: ${JSON.stringify(error.response.data)}`);
+        }
     }
 
     return results;
 }
+
+function isWebsiteValid(baseUrl, fullLink) {
+    try {
+        const baseHostname = new URL(baseUrl).hostname;
+        const linkHostname = new URL(fullLink).hostname;
+        
+        // Check if the hostnames are exactly the same
+        if (baseHostname === linkHostname) {
+            return false;
+        }
+        
+        // Check if the link's hostname ends with the base hostname
+        // This catches cases like 'subdomain.example.com' when base is 'example.com'
+        if (linkHostname.endsWith('.' + baseHostname) || 
+            linkHostname.includes(baseHostname)) {
+            return true;
+        }
+        
+        return false;
+    } catch (error) {
+        console.warn(`Error comparing URLs: ${baseUrl} and ${fullLink}`);
+        return false;
+    }
+}
+
 /**
  * Crawls multiple websites for articles related to specified terms.
  *
