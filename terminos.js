@@ -426,6 +426,7 @@ module.exports = {
     "https://antena3.com",
     "https://europapress.es",
     "https://efe.com",
+    "https://vozpopuli.com/",
     "https://eldiario.es",
     "https://lavozdegalicia.es",
     "https://diariodenavarra.es",
