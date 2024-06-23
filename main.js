@@ -326,7 +326,6 @@ const extractDateText = (element) => {
         if (dateElement.length) {
             const dateText = dateElement.text().trim() || dateElement.attr('datetime') || dateElement.attr('data-date');
             if (dateText) {
-                console.log(`Found date text "${dateText}" using pattern "${pattern}"`);
                 return dateText;
             }
         }
@@ -374,17 +373,14 @@ const isRecent = (dateText) => {
         try {
             date = parse(dateText, format, new Date());
             if (!isNaN(date)) {
-                console.log(`Parsed date "${dateText}" using format "${format}"`);
                 break;
             }
         } catch (e) {
-            console.warn(`Failed to parse date "${dateText}" with format "${format}"`);
             continue;
         }
     }
 
     if (!date || isNaN(date)) {
-        console.warn(`Unable to parse date: ${dateText}`);
         return false;
     }
 
@@ -505,13 +501,11 @@ const extractTitleText = (element) => {
             if (pattern.startsWith('meta')) {
                 const content = titleElement.attr('content');
                 if (content) {
-                    console.log(`Found title text "${content}" using pattern "${pattern}"`);
                     return content.trim();
                 }
             } else {
                 const titleText = titleElement.text().trim();
                 if (titleText) {
-                    console.log(`Found title text "${titleText}" using pattern "${pattern}"`);
                     return titleText;
                 }
             }
@@ -520,7 +514,6 @@ const extractTitleText = (element) => {
 
     // Fallback to the text of the element itself if no specific title pattern matched
     const fallbackTitle = element.text().trim();
-    console.log(`Using fallback title text "${fallbackTitle}"`);
     return fallbackTitle;
 };
 
