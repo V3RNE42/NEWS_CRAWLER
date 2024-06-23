@@ -690,7 +690,7 @@ const sendEmail = async () => {
     let topArticles = results.topArticles ?? [];
 
     //Edge case of summary not being present
-    for (let index = 0; index < topArticles.length; index++) {
+    for (let i = 0; i < topArticles.length; i++) {
         let link = EMPTY_STRING, summary = EMPTY_STRING;
         if (topArticles[i].summary === STRING_PLACEHOLDER ||
             topArticles[i].summary.includes(FAILED_SUMMARY_MSSG)) {
