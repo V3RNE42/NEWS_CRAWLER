@@ -483,6 +483,47 @@ function createWorker(workerData) {
     });
 }
 
+const extractTitleText = (element) => {
+    const titlePatterns = [
+        'h1',
+        'h2',
+        'h3',
+        'title',
+        '.headline',
+        '.article-title',
+        '.news-title',
+        '[data-headline]',
+        '[data-title]',
+        'meta[property="og:title"]',
+        'meta[name="twitter:title"]'
+    ];
+
+    for (const pattern of titlePatterns) {
+        const titleElement = element.find(pattern);
+        if (titleElement.length) {
+            // For meta tags, we need to get the content attribute
+            if (pattern.startsWith('meta')) {
+                const content = titleElement.attr('content');
+                if (content) {
+                    console.log(`Found title text "${content}" using pattern "${pattern}"`);
+                    return content.trim();
+                }
+            } else {
+                const titleText = titleElement.text().trim();
+                if (titleText) {
+                    console.log(`Found title text "${titleText}" using pattern "${pattern}"`);
+                    return titleText;
+                }
+            }
+        }
+    }
+
+    // Fallback to the text of the element itself if no specific title pattern matched
+    const fallbackTitle = element.text().trim();
+    console.log(`Using fallback title text "${fallbackTitle}"`);
+    return fallbackTitle;
+};
+
 async function crawlWebsite(url, terms, scrapedLinks, maxRetries = 3) {
     let results = {};
     terms.forEach(term => results[term] = []);
@@ -499,9 +540,10 @@ async function crawlWebsite(url, terms, scrapedLinks, maxRetries = 3) {
                 const fullLink = normalizeUrl(new URL(link, url).href);
 
                 if (isWebsiteValid(normalizeUrl(url), fullLink) && !(await scrapedLinks.has(fullLink))) {
-                    const title = cleanText($(element).text().trim());
-                    const surroundingText = cleanText($(element).parent().text().trim());
-                    const dateText = extractDateText($(element).closest('article,div,section'));
+                    const surroundingElement = $(element).closest('article,div,section,p');
+                    const title = extractTitleText(surroundingElement);
+                    const surroundingText = cleanText(surroundingElement.text().trim());
+                    const dateText = extractDateText(surroundingElement);
 
                     if (isRecent(dateText)) {
                         const { score, mostCommonTerm } = relevanceScoreAndMaxCommonFoundTerm(title + ' ' + surroundingText);
