@@ -426,7 +426,6 @@ const crawlWebsite = async (url, terms) => {
                         let topics = getMainTopics(fullText, LANGUAGE, SENSITIVITY);
                         if (topics.some(topic => terms.includes(topic.toLowerCase()))) {
                             seenLinks.add(link);
-                            console.log(`Added article: ${link}`);
                             const summary = STRING_PLACEHOLDER;
                             return { title, link, summary, score, term: mostCommonTerm, fullText };
                         }
@@ -461,22 +460,15 @@ const crawlWebsites = async () => {
         chunks.push(websites.slice(i, i + chunkSize));
     }
 
-    const workerPool = chunks.slice(0, maxConcurrentWorkers).map(chunk => createWorker({ chunk, terms }));
-
-    const results = [];
-    for (let i = 0; i < chunks.length; i += maxConcurrentWorkers) {
-        const batch = chunks.slice(i, i + maxConcurrentWorkers);
-        const batchResults = await Promise.all(batch.map((_, index) => workerPool[index]));
-        results.push(...batchResults);
-
-        // Add a delay between batches
-        await new Promise(r => setTimeout(r, 5000 + Math.random() * 5000));
-    }
+    const workerPromises = chunks.map(chunk => createWorker({ chunk, terms, seenLinks: Array.from(seenLinks) }));
+    const results = await Promise.all(workerPromises);
 
     for (const result of results) {
-        for (const [term, articles] of Object.entries(result)) {
+        for (const [term, articles] of Object.entries(result.articles)) {
             allResults[term].push(...articles);
         }
+        // Update seenLinks with links from this worker
+        result.seenLinks.forEach(link => seenLinks.add(link));
     }
 
     return allResults;
@@ -812,8 +804,33 @@ const main = async () => {
 };
 
 
-// Main thread and worker thread logic
 if (isMainThread) {
+    // Main thread code
+    const main = async () => {
+        let resultados;
+        let keepGoing = !(checkCloseToEmailBracketEnd(emailEndTime));
+
+        while (keepGoing) {
+            if (checkCloseToEmailBracketEnd(emailEndTime)) {
+                keepGoing = false;
+                break;
+            }
+            resultados = loadPreviousResults();
+            const results = await crawlWebsites();
+            for (const [term, articles] of Object.entries(results)) {
+                resultados[term].push(...articles);
+            }
+
+            await saveResults(resultados);
+        }
+
+        if (!fs.existsSync(path.join(__dirname, CRAWL_COMPLETE_FLAG))) {
+            fs.writeFileSync(path.join(__dirname, CRAWL_COMPLETE_FLAG), "Crawling complete");
+        }
+
+        await sendEmail();
+    };
+
     // Using IIFE to handle top-level await
     (async () => {
         await assignBrowserPath();
@@ -827,29 +844,29 @@ if (isMainThread) {
         }
     })();
 } else {
-    // Worker thread logic
+    // Worker thread code
+    const { chunk, terms, seenLinks: initialSeenLinks } = workerData;
+    seenLinks = new Set(initialSeenLinks);
+
     (async () => {
-        const { chunk, terms } = workerData;
         const results = {};
         for (const term of terms) results[term] = [];
 
         for (const url of chunk) {
             if (checkCloseToEmailBracketEnd(emailEndTime)) {
-                parentPort.postMessage(results);
+                parentPort.postMessage({ articles: results, seenLinks: Array.from(seenLinks) });
                 return;
             }
             console.log(`Crawling ${url}...`);
-            await new Promise((r) => setTimeout(r, (550 + Math.floor(Math.random() * 600))));
             try {
                 const websiteResults = await crawlWebsite(url, terms);
                 for (const [term, articles] of Object.entries(websiteResults)) {
                     results[term].push(...articles);
                 }
-                await new Promise((r) => setTimeout(r, (1000 + Math.floor(Math.random() * 250))));
             } catch (error) {
                 console.error(`Error crawling ${url}: ${error}`);
             }
         }
-        parentPort.postMessage(results);
+        parentPort.postMessage({ articles: results, seenLinks: Array.from(seenLinks) });
     })();
 }
