@@ -5,6 +5,9 @@ const path = require("path");
 const cheerio = require('cheerio');
 const { OpenAI } = require("openai");
 const puppeteer = require('puppeteer');
+const { Worker, isMainThread, parentPort, workerData } = require('worker_threads');
+const { RateLimiter } = require('limiter');
+const os = require('os');
 let { terms, websites } = require("./terminos");
 const config = require("./config.json");
 const { getMainTopics, sanitizeHtml } = require("./text_analysis/topics_extractor");
@@ -39,8 +42,8 @@ const emailEndTime = parseTime(config.time.email);
 /** Assigns a valid browser path to the BROWSER_PATH variable based on the configuration
  * @return {Promise<void>} A promise that resolves when the browser path is assigned.   */
 async function assignBrowserPath() {
-    BROWSER_PATH = config.browser.path === STRING_PLACEHOLDER 
-        ? await findValidChromiumPath() 
+    BROWSER_PATH = config.browser.path === STRING_PLACEHOLDER
+        ? await findValidChromiumPath()
         : config.browser.path;
 }
 
@@ -87,7 +90,7 @@ async function extractArticleText(url) {
         const $ = cheerio.load(html);
         articleText = $.html();
     }
-    
+
     return cleanText(articleText);
 }
 
@@ -297,6 +300,7 @@ const isRecent = (dateText) => {
 const fetchPage = async (url, retries = 3) => {
     for (let i = 0; i < retries; i++) {
         try {
+            await rateLimiter.removeTokens(1);
             const response = await fetch(url);
             if (!response.ok)
                 throw new Error(`HTTP error! status: ${response.status}`);
@@ -305,7 +309,6 @@ const fetchPage = async (url, retries = 3) => {
             console.warn(`Attempt ${i + 1} for URL ${url} failed: ${error}`);
             await new Promise((r) => setTimeout(r, 2 ** i * 800));
         }
-        await new Promise((r) => setTimeout(r, Math.floor(Math.random() * 600)));
     }
     console.error(`All retries failed for URL ${url}`);
     return null;
@@ -358,6 +361,28 @@ const checkCloseToEmailBracketEnd = (endTime) => {
     return now >= tenMinutesBeforeEnd && now < end;
 };
 
+const rateLimiter = new RateLimiter({
+    tokensPerInterval: 5,
+    interval: 'second',
+    fireImmediately: true
+});
+
+/** Creates a new worker thread with the specified workerData.
+ * @param {Object} workerData - The data to pass to the worker.
+ * @return {Promise<any>} A promise that resolves with the response from the worker */
+function createWorker(workerData) {
+    return new Promise((resolve, reject) => {
+        const worker = new Worker(__filename, { workerData });
+        worker.on('message', resolve);
+        worker.on('error', reject);
+        worker.on('exit', (code) => {
+            if (code !== 0) {
+                reject(new Error(`Worker stopped with exit code ${code}`));
+            }
+        });
+    });
+}
+
 /**
  * Crawls a website for articles related to given terms and returns the results.
  *
@@ -367,22 +392,21 @@ const checkCloseToEmailBracketEnd = (endTime) => {
 const crawlWebsite = async (url, terms) => {
     let results = {};
 
-    terms.forEach((term) => { results[term] = []; }); //initialize every term in the results object
+    terms.forEach((term) => { results[term] = []; });
     for (const term of terms) {
         const searchUrl = `https://www.bing.com/search?q=${encodeURIComponent(term)}+site:${encodeURIComponent(url)}&filters=ex1%3a"ez5"`;
+        await rateLimiter.removeTokens(1);
         const pageContent = await fetchPage(searchUrl);
         if (!pageContent) continue;
 
         const $ = cheerio.load(pageContent);
         const articleElements = $("li.b_algo");
 
-        for (let i = 0; i < articleElements.length; i++) {
+        const articlePromises = articleElements.map(async (i, article) => {
             if (checkCloseToEmailBracketEnd(emailEndTime)) {
-                console.log("Stopping crawling to prepare for email sending.");
-                return results;
+                return null;
             }
 
-            const article = articleElements[i];
             const titleElement = $(article).find("h2");
             const linkElement = titleElement.find("a");
             const dateElement = $(article).find("span.news_dt");
@@ -392,22 +416,30 @@ const crawlWebsite = async (url, terms) => {
                 const link = normalizeUrl(linkElement.attr("href"));
                 const dateText = dateElement.text();
 
-                if (seenLinks.has(link) || link === url) continue;
+                if (seenLinks.has(link) || link === url) return null;
 
                 if (isRecent(dateText)) {
+                    await rateLimiter.removeTokens(1);
                     let fullText = await extractArticleText(link);
                     let { score, mostCommonTerm } = relevanceScoreAndMaxCommonFoundTerm(fullText);
                     if (score > 0) {
-                        let topics = getMainTopics(fullText, LANGUAGE, SENSITIVITY); //discard false positive
+                        let topics = getMainTopics(fullText, LANGUAGE, SENSITIVITY);
                         if (topics.some(topic => terms.includes(topic.toLowerCase()))) {
                             seenLinks.add(link);
+                            console.log(`Added article: ${link}`);
                             const summary = STRING_PLACEHOLDER;
-                            results[mostCommonTerm].push({ title, link, summary, score, term: mostCommonTerm, fullText });
+                            return { title, link, summary, score, term: mostCommonTerm, fullText };
                         }
                     }
                 }
             }
-        }
+            return null;
+        }).get();
+
+        const articles = (await Promise.all(articlePromises)).filter(article => article !== null);
+        articles.forEach(article => {
+            results[article.term].push(article);
+        });
     }
 
     return results;
@@ -421,26 +453,32 @@ const crawlWebsites = async () => {
     const allResults = {};
     for (const term of terms) allResults[term] = [];
 
-    for (const url of websites) {
-        if (checkCloseToEmailBracketEnd(emailEndTime)) {
-            console.log("Stopping crawling to prepare for email sending.");
-            return allResults;
-        }
-        console.log(`Crawling ${url}...`);
-        await new Promise((r) => setTimeout(r, (550 + Math.floor(Math.random() * 600))));
-        try {
-            const results = await crawlWebsite(url, terms);
-            for (const [term, articles] of Object.entries(results)) {
-                for (const art of articles) {
-                    allResults[term].push(art);
-                    console.log(`Added article: ${art.title} (${art.link})`);
-                }
-            }
-            await new Promise((r) => setTimeout(r, (1000 + Math.floor(Math.random() * 250))));
-        } catch (error) {
-            console.error(`Error crawling ${url}: ${error}`);
+    const maxConcurrentWorkers = os.cpus().length;
+    const chunkSize = Math.ceil(websites.length / maxConcurrentWorkers);
+    const chunks = [];
+
+    for (let i = 0; i < websites.length; i += chunkSize) {
+        chunks.push(websites.slice(i, i + chunkSize));
+    }
+
+    const workerPool = chunks.slice(0, maxConcurrentWorkers).map(chunk => createWorker({ chunk, terms }));
+
+    const results = [];
+    for (let i = 0; i < chunks.length; i += maxConcurrentWorkers) {
+        const batch = chunks.slice(i, i + maxConcurrentWorkers);
+        const batchResults = await Promise.all(batch.map((_, index) => workerPool[index]));
+        results.push(...batchResults);
+
+        // Add a delay between batches
+        await new Promise(r => setTimeout(r, 5000 + Math.random() * 5000));
+    }
+
+    for (const result of results) {
+        for (const [term, articles] of Object.entries(result)) {
+            allResults[term].push(...articles);
         }
     }
+
     return allResults;
 };
 
@@ -460,9 +498,9 @@ const removeRedundantArticles = async (results) => {
             for (let j = 0; j < articles.length; j++) {
                 if (i !== j && !toRemove.has(j)) {
                     const sameNews = await coveringSameNews(
-                        articles[i].fullText, 
-                        articles[j].fullText, 
-                        LANGUAGE, 
+                        articles[i].fullText,
+                        articles[j].fullText,
+                        LANGUAGE,
                         SIMILARITY_THRESHOLD
                     );
                     if (sameNews) {
@@ -498,19 +536,19 @@ const saveResults = async (results) => {
     let numTopArticles = 0;
     let mostCommonTerm = "Most_Common_Term";
     let link = EMPTY_STRING, summary = EMPTY_STRING;
-    
+
     const thisIsTheTime = checkCloseToEmailBracketEnd(emailEndTime);
     if (thisIsTheTime) {
         results = await removeRedundantArticles(results);
         topArticles = extractTopArticles(results);
         numTopArticles = topArticles.length;
         for (let i = 0; i < numTopArticles; i++) {
-            if (topArticles[i].summary === STRING_PLACEHOLDER || 
+            if (topArticles[i].summary === STRING_PLACEHOLDER ||
                 topArticles[i].summary.includes(FAILED_SUMMARY_MSSG)) {
                 ({ url: link, response: summary } = await summarizeText(
                     topArticles[i].link,
                     topArticles[i].fullText,
-                    topArticles[i].term, 
+                    topArticles[i].term,
                     topArticles[i].title));
                 topArticles[i].summary = summary;
                 topArticles[i].link = link !== EMPTY_STRING ? link : topArticles[i].link;
@@ -556,7 +594,7 @@ const loadPreviousResults = () => {
             throw new Error('Results file does not exist');
         }
     } catch (err) {
-        console.error("Error loading or parsing results file:", err);
+        console.error("No previous results found. Loading new template...");
         let previousResults = {};
         terms.forEach(term => { previousResults[term] = []; });
         return previousResults;
@@ -774,15 +812,44 @@ const main = async () => {
 };
 
 
-// Using IIFE to handle top-level await
-(async () => {
-    await assignBrowserPath();
-    console.log(`Webcrawler scheduled to run indefinetely. Emails will be sent daily at ${config.time.email}`);
+// Main thread and worker thread logic
+if (isMainThread) {
+    // Using IIFE to handle top-level await
+    (async () => {
+        await assignBrowserPath();
+        console.log(`Webcrawler scheduled to run indefinitely. Emails will be sent daily at ${config.time.email}`);
 
-    while (true) {
-        console.log(`Running the web crawler at ${new Date().toISOString()}...`);
-        await main()
-            .then(() => console.log('Scheduled webcrawler run finished successfully\n\n\n'))
-            .catch(error => console.error('Error in scheduled webcrawler run:', error, '\n\n\n'));
-    };
-})();
+        while (true) {
+            console.log(`Running the web crawler at ${new Date().toISOString()}...`);
+            await main()
+                .then(() => console.log('Scheduled webcrawler run finished successfully\n\n\n'))
+                .catch(error => console.error('Error in scheduled webcrawler run:', error, '\n\n\n'));
+        }
+    })();
+} else {
+    // Worker thread logic
+    (async () => {
+        const { chunk, terms } = workerData;
+        const results = {};
+        for (const term of terms) results[term] = [];
+
+        for (const url of chunk) {
+            if (checkCloseToEmailBracketEnd(emailEndTime)) {
+                parentPort.postMessage(results);
+                return;
+            }
+            console.log(`Crawling ${url}...`);
+            await new Promise((r) => setTimeout(r, (550 + Math.floor(Math.random() * 600))));
+            try {
+                const websiteResults = await crawlWebsite(url, terms);
+                for (const [term, articles] of Object.entries(websiteResults)) {
+                    results[term].push(...articles);
+                }
+                await new Promise((r) => setTimeout(r, (1000 + Math.floor(Math.random() * 250))));
+            } catch (error) {
+                console.error(`Error crawling ${url}: ${error}`);
+            }
+        }
+        parentPort.postMessage(results);
+    })();
+}
