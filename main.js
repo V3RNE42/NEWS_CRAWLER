@@ -19,7 +19,7 @@ const MAX_TOKENS_PER_CALL = config.openai.max_tokens_per_call;
 const SIMILARITY_THRESHOLD = config.text_analysis.max_similarity;
 let BROWSER_PATH;
 
-const SUMMARY_PLACEHOLDER = "placeholder";
+const STRING_PLACEHOLDER = "placeholder";
 const FAILED_SUMMARY_MSSG = "No se pudo generar un resumen";
 const EMPTY_STRING = "";
 const CRAWLED_RESULTS_JSON = "crawled_results.json";
@@ -39,7 +39,7 @@ const emailEndTime = parseTime(config.time.email);
 /** Assigns a valid browser path to the BROWSER_PATH variable based on the configuration
  * @return {Promise<void>} A promise that resolves when the browser path is assigned.   */
 async function assignBrowserPath() {
-    BROWSER_PATH = config.browser.path === "placeholder" 
+    BROWSER_PATH = config.browser.path === STRING_PLACEHOLDER 
         ? await findValidChromiumPath() 
         : config.browser.path;
 }
@@ -401,7 +401,7 @@ const crawlWebsite = async (url, terms) => {
                         let topics = getMainTopics(fullText, LANGUAGE, SENSITIVITY); //discard false positive
                         if (topics.some(topic => terms.includes(topic.toLowerCase()))) {
                             seenLinks.add(link);
-                            const summary = SUMMARY_PLACEHOLDER;
+                            const summary = STRING_PLACEHOLDER;
                             results[mostCommonTerm].push({ title, link, summary, score, term: mostCommonTerm, fullText });
                         }
                     }
@@ -505,7 +505,7 @@ const saveResults = async (results) => {
         topArticles = extractTopArticles(results);
         numTopArticles = topArticles.length;
         for (let i = 0; i < numTopArticles; i++) {
-            if (topArticles[i].summary === SUMMARY_PLACEHOLDER || 
+            if (topArticles[i].summary === STRING_PLACEHOLDER || 
                 topArticles[i].summary.includes(FAILED_SUMMARY_MSSG)) {
                 ({ url: link, response: summary } = await summarizeText(
                     topArticles[i].link,
@@ -662,7 +662,7 @@ const sendEmail = async () => {
     //Edge case of summary not being present
     for (let index = 0; index < topArticles.length; index++) {
         let link = EMPTY_STRING, summary = EMPTY_STRING;
-        if (topArticles[i].summary === SUMMARY_PLACEHOLDER ||
+        if (topArticles[i].summary === STRING_PLACEHOLDER ||
             topArticles[i].summary.includes(FAILED_SUMMARY_MSSG)) {
             ({ url: link, response: summary } = await summarizeText(
                 topArticles[i].link,
