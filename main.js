@@ -22,6 +22,8 @@ let BROWSER_PATH;
 const SUMMARY_PLACEHOLDER = "placeholder";
 const FAILED_SUMMARY_MSSG = "No se pudo generar un resumen";
 const EMPTY_STRING = "";
+const CRAWLED_RESULTS_JSON = "crawled_results.json";
+const CRAWL_COMPLETE_FLAG = "crawl_complete.flag";
 
 let seenLinks = new Set();
 terms = terms.map((term) => term.toLowerCase());
@@ -490,8 +492,8 @@ const removeRedundantArticles = async (results) => {
  * @return {Promise<boolean>} - A promise that resolves to a boolean indicating if the crawling is complete.    */
 const saveResults = async (results) => {
     console.log("Saving results...");
-    const resultsPath = path.join(__dirname, `crawled_results.json`);
-    const flagPath = path.join(__dirname, "crawl_complete.flag");
+    const resultsPath = path.join(__dirname, CRAWLED_RESULTS_JSON);
+    const flagPath = path.join(__dirname, CRAWL_COMPLETE_FLAG);
     let topArticles = [];
     let numTopArticles = 0;
     let mostCommonTerm = "Most_Common_Term";
@@ -533,7 +535,7 @@ const saveResults = async (results) => {
  * @return {Object} The previous results, or an empty object if the file doesn't exist or cannot be parsed. */
 const loadPreviousResults = () => {
     console.log("Loading previous results...");
-    const resultsPath = path.join(__dirname, 'crawled_results.json');
+    const resultsPath = path.join(__dirname, CRAWLED_RESULTS_JSON);
 
     try {
         if (fs.existsSync(resultsPath)) {
@@ -627,7 +629,7 @@ function mostCommonTerms(allResults) {
  * @return {Object} The loaded results, or null if the file doesn't exist.  */
 const loadResults = () => {
     console.log("Loading results...");
-    const resultsPath = path.join(__dirname, `crawled_results.json`);
+    const resultsPath = path.join(__dirname, CRAWLED_RESULTS_JSON);
     if (fs.existsSync(resultsPath)) {
         return JSON.parse(fs.readFileSync(resultsPath));
     }
@@ -678,7 +680,7 @@ const sendEmail = async () => {
         mostFrequentTerm = mostCommonTerms(results);
     }
 
-    while (!fs.existsSync(path.join(__dirname, "crawl_complete.flag")) || emailTime.getTime() > Date.now()) {
+    while (!fs.existsSync(path.join(__dirname, CRAWL_COMPLETE_FLAG)) || emailTime.getTime() > Date.now()) {
         console.log("Waiting...");
         await new Promise((r) => setTimeout(r, 90000));
     }
@@ -738,8 +740,8 @@ const sendEmail = async () => {
         await transporter.sendMail(mailOptions);
         console.log("Emails sent successfully!");
 
-        fs.unlinkSync(path.join(__dirname, "crawl_complete.flag"));
-        fs.unlinkSync(path.join(__dirname, `crawled_results.json`));
+        fs.unlinkSync(path.join(__dirname, CRAWL_COMPLETE_FLAG));
+        fs.unlinkSync(path.join(__dirname, CRAWLED_RESULTS_JSON));
         console.log("Cleanup complete: Deleted flag and results files.");
     } catch (error) {
         console.error(`Error sending emails: ${error}`);
@@ -764,8 +766,8 @@ const main = async () => {
         await saveResults(resultados);
     }
 
-    if (!fs.existsSync(path.join(__dirname, "crawl_complete.flag"))) {
-        fs.writeFileSync(path.join(__dirname, "crawl_complete.flag"), "Crawling complete");
+    if (!fs.existsSync(path.join(__dirname, CRAWL_COMPLETE_FLAG))) {
+        fs.writeFileSync(path.join(__dirname, CRAWL_COMPLETE_FLAG), "Crawling complete");
     }
 
     await sendEmail();
