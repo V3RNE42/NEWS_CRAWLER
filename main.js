@@ -9,6 +9,7 @@ const puppeteer = require('puppeteer');
 const { Worker, isMainThread, parentPort, workerData } = require('worker_threads');
 const { RateLimiter } = require('limiter');
 const os = require('os');
+const { parse, differenceInHours } = require('date-fns');
 let { terms, websites } = require("./terminos");
 const config = require("./config.json");
 const { getMainTopics, sanitizeHtml } = require("./text_analysis/topics_extractor");
@@ -63,6 +64,7 @@ async function assignBrowserPath() {
 }
 
 const todayDate = () => new Date().toISOString().split("T")[0];
+const TODAY = todayDate();
 
 const sleep = async (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -298,20 +300,95 @@ const summarizeText = async (link, fullText, numberOfLinks, topic) => {
     return { url, response };
 };
 
-/**
- * Checks if a given date text is recent.
- *
- * @param {string} dateText - The text to be checked.
- * @return {boolean} Returns true if the date text is recent, false otherwise.  */
-const isRecent = (dateText) => {
-    const today = new Date();
-    const todayStr = `${today.getMonth() + 1}/${today.getDate()}/${today.getFullYear()}`;
+const extractDateText = (element) => {
+    const datePatterns = [
+        'time',
+        'span',
+        '[data-date]',
+        '[datetime]',
+        '[data-publish-date]',
+        '[date-publish-date]',
+        '[data-pubdate]',
+        '[date-pubdate]',
+        '[data-created]',
+        '[date-created]',
+        '[date]',
+        '.date-group-published',
+        '.published-date',
+        '.post-date',
+        '.entry-date',
+        '.article-date',
+        '.meta-date'
+    ];
 
-    return (
-        ["hours ago", "hour ago", "minutes ago", "minute ago", "just now", "hora", "horas", "minuto", "minutos", "segundos", "justo ahora"]
-            .some((keyword) => dateText.toLowerCase().includes(keyword)) ||
-        dateText.includes(todayStr)
-    );
+    for (const pattern of datePatterns) {
+        const dateElement = element.find(pattern);
+        if (dateElement.length) {
+            const dateText = dateElement.text().trim() || dateElement.attr('datetime') || dateElement.attr('data-date');
+            if (dateText) {
+                console.log(`Found date text "${dateText}" using pattern "${pattern}"`);
+                return dateText;
+            }
+        }
+    }
+
+    return '';
+};
+
+// Function to generate exhaustive date formats
+const generateDateFormats = () => {
+    const delimiters = ['-', '/', ' '];
+    const orders = [
+        ['yyyy', 'MM', 'dd'],
+        ['yyyy', 'dd', 'MM'],
+        ['MM', 'dd', 'yyyy'],
+        ['dd', 'MM', 'yyyy']
+    ];
+
+    const formats = [];
+
+    orders.forEach(order => {
+        delimiters.forEach(delimiter => {
+            formats.push(order.join(delimiter));
+            formats.push(order.join(`${delimiter}HH:mm`));
+            formats.push(order.join(`${delimiter}HH:mm:ss`));
+            formats.push(order.join(`${delimiter}HH:mm:ss.SSS`));
+        });
+    });
+
+    // Adding verbose month formats
+    formats.push('MMMM d, yyyy');
+    formats.push('MMM d, yyyy');
+    formats.push('d MMMM yyyy');
+    formats.push('d MMM yyyy');
+
+    return formats;
+};
+
+const isRecent = (dateText) => {
+    const now = new Date(TODAY);
+    let date;
+    const formats = generateDateFormats();
+
+    for (const format of formats) {
+        try {
+            date = parse(dateText, format, new Date());
+            if (!isNaN(date)) {
+                console.log(`Parsed date "${dateText}" using format "${format}"`);
+                break;
+            }
+        } catch (e) {
+            console.warn(`Failed to parse date "${dateText}" with format "${format}"`);
+            continue;
+        }
+    }
+
+    if (!date || isNaN(date)) {
+        console.warn(`Unable to parse date: ${dateText}`);
+        return false;
+    }
+
+    return differenceInHours(now, date) < 24;
 };
 
 async function fetchWithRetry(url, retries = 0, initialDelay = INITIAL_DEALY) {
@@ -424,7 +501,7 @@ async function crawlWebsite(url, terms, scrapedLinks, maxRetries = 3) {
                 if (isWebsiteValid(normalizeUrl(url), fullLink) && !(await scrapedLinks.has(fullLink))) {
                     const title = cleanText($(element).text().trim());
                     const surroundingText = cleanText($(element).parent().text().trim());
-                    const dateText = $(element).closest('article,div,section').find('time').text().trim();
+                    const dateText = extractDateText($(element).closest('article,div,section'));
 
                     if (isRecent(dateText)) {
                         const { score, mostCommonTerm } = relevanceScoreAndMaxCommonFoundTerm(title + ' ' + surroundingText);
@@ -477,19 +554,19 @@ function isWebsiteValid(baseUrl, fullLink) {
     try {
         const baseHostname = new URL(baseUrl).hostname;
         const linkHostname = new URL(fullLink).hostname;
-        
+
         // Check if the hostnames are exactly the same
         if (baseHostname === linkHostname) {
             return false;
         }
-        
+
         // Check if the link's hostname ends with the base hostname
         // This catches cases like 'subdomain.example.com' when base is 'example.com'
-        if (linkHostname.endsWith('.' + baseHostname) || 
+        if (linkHostname.endsWith('.' + baseHostname) ||
             linkHostname.includes(baseHostname)) {
             return true;
         }
-        
+
         return false;
     } catch (error) {
         console.warn(`Error comparing URLs: ${baseUrl} and ${fullLink}`);
