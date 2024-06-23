@@ -53,41 +53,6 @@ const parseTime = (timeStr) => {
 
 const emailEndTime = parseTime(config.time.email);
 
-let currentSearchEngineIndex = 0;
-
-const searchEngines = [
-    {
-        name: 'Google',
-        url: (term, site) => `https://www.google.com/search?q=${encodeURIComponent(term)}+site:${encodeURIComponent(site)}&tbm=nws`,
-        resultSelector: "div.g",
-        titleSelector: "h3.r",
-        linkSelector: "a",
-        dateSelector: "span.f"
-    },
-    {
-        name: 'Bing',
-        url: (term, site) => `https://www.bing.com/search?q=${encodeURIComponent(term)}+site:${encodeURIComponent(site)}&filters=ex1%3a"ez5"`,
-        resultSelector: "li.b_algo",
-        titleSelector: "h2",
-        linkSelector: "a",
-        dateSelector: "span.news_dt"
-    },
-    {
-        name: 'DuckDuckGo',
-        url: (term, site) => `https://html.duckduckgo.com/html/?q=${encodeURIComponent(term)}+site:${encodeURIComponent(site)}`,
-        resultSelector: ".result",
-        titleSelector: "h2.result__title",
-        linkSelector: "a.result__a",
-        dateSelector: "span.result__timestamp"
-    }
-];
-
-const getNextSearchEngine = () => {
-    const engine = searchEngines[currentSearchEngineIndex];
-    currentSearchEngineIndex = (currentSearchEngineIndex + 1) % searchEngines.length;
-    return engine;
-};
-
 //FUNCTIONS
 /** Assigns a valid browser path to the BROWSER_PATH variable based on the configuration
  * @return {Promise<void>} A promise that resolves when the browser path is assigned.   */
