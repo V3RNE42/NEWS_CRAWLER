@@ -317,98 +317,30 @@ const summarizeText = async (link, fullText, numberOfLinks, topic) => {
     return { url, response };
 };
 
-const extractDateText = (element) => {
-    const datePatterns = [
-        'time', 'span', '[data-date]', '[datetime]', '[data-publish-date]',
-        '[date-publish-date]', '[data-pubdate]', '[date-pubdate]', '[data-created]',
-        '[date-created]', '[date]', '.date-group-published', '.published-date',
-        '.post-date', '.entry-date', '.article-date', '.meta-date'
-    ];
-
-    // RegEx patterns for various date formats (European/Spanish priority)
-    const dateRegexPatterns = [
-        /(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})/,  // dd/mm/yyyy or dd-mm-yyyy
-        /(\d{1,2}) de (?:enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)(?:,? de)? (\d{2,4})/i,  // dd de mes de yyyy
-        /(\d{1,2}) (?:ene|feb|mar|abr|may|jun|jul|ago|sep|oct|nov|dic)\.? (?:de )?(\d{2,4})/i,  // dd mes yyyy
-        /(\d{4})[/-](\d{1,2})[/-](\d{1,2})/,  // yyyy/mm/dd or yyyy-mm-dd
-        /hace (\d+) (?:minutos?|horas?|días?|semanas?|meses?)/i,  // relative time in Spanish
-    ];
-
-    const fullText = element.text().trim();
-
-    // First, try to find a date using the specific elements
-    for (const pattern of datePatterns) {
-        const dateElement = element.find(pattern);
-        if (dateElement.length) {
-            const dateText = dateElement.text().trim() || dateElement.attr('datetime') || dateElement.attr('data-date');
-            if (dateText) {
-                return dateText;
-            }
-        }
-    }
-
-    // If no date found in specific elements, try RegEx on the full text
-    for (const regex of dateRegexPatterns) {
-        const match = fullText.match(regex);
-        if (match) {
-            return match[0];
-        }
-    }
-
-    return '';
-};
-
 const isRecent = (dateText) => {
     if (!dateText) return false;
 
-    const now = new Date();
-    let date;
+    const today = new Date();
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
 
-    // Handle relative time
-    const relativeMatch = dateText.match(/hace (\d+) (minutos?|horas?|días?|semanas?|meses?)/i);
-    if (relativeMatch) {
-        const [_, amount, unit] = relativeMatch;
-        date = new Date(now);
-        switch (unit.toLowerCase()) {
-            case 'minuto':
-            case 'minutos':
-                date.setMinutes(date.getMinutes() - parseInt(amount));
-                break;
-            case 'hora':
-            case 'horas':
-                date.setHours(date.getHours() - parseInt(amount));
-                break;
-            case 'día':
-            case 'días':
-                date.setDate(date.getDate() - parseInt(amount));
-                break;
-            case 'semana':
-            case 'semanas':
-                date.setDate(date.getDate() - (parseInt(amount) * 7));
-                break;
-            case 'mes':
-            case 'meses':
-                date.setMonth(date.getMonth() - parseInt(amount));
-                break;
-        }
-    } else {
-        // Handle absolute dates
-        const formats = [
-            'dd/MM/yyyy', 'dd-MM-yyyy', 'd MMMM yyyy', 'd MMM yyyy',
-            'yyyy/MM/dd', 'yyyy-MM-dd'
-        ];
+    const todayStr = `${today.getMonth() + 1}/${today.getDate()}/${today.getFullYear()}`;
+    const yesterdayStr = `${yesterday.getMonth() + 1}/${yesterday.getDate()}/${yesterday.getFullYear()}`;
 
-        for (const format of formats) {
-            date = parse(dateText, format, new Date());
-            if (!isNaN(date)) break;
-        }
+    const recentKeywords = [
+        "hours ago", "hour ago", "minutes ago", "minute ago", "just now",
+        "hora", "horas", "minuto", "minutos", "segundos", "justo ahora",
+        "today", "hoy", "yesterday", "ayer"
+    ];
 
-        if (isNaN(date)) {
-            return false;
-        }
-    }
+    const lowercaseDateText = dateText.toLowerCase();
 
-    return differenceInHours(now, date) < 24;
+    return (
+        recentKeywords.some(keyword => lowercaseDateText.includes(keyword)) ||
+        dateText.includes(todayStr) ||
+        dateText.includes(yesterdayStr) ||
+        /\d+\s+(minute|hour|día|día|h)\s+ago/i.test(dateText)
+    );
 };
 
 async function fetchWithRetry(url, retries = 0, initialDelay = INITIAL_DEALY) {
@@ -564,69 +496,78 @@ async function crawlWebsite(url, terms, workerAddedLinks, newlyAddedLinks) {
     let results = {};
     terms.forEach(term => results[term] = new Set());
 
-    try {
-        const html = await fetchWithRetry(url, MAX_RETRIES_PER_FETCH);
-        const $ = cheerio.load(html);
+    for (const term of terms) {
+        try {
+            const searchUrl = `https://www.bing.com/search?q=${encodeURIComponent(term)}+site:${encodeURIComponent(url)}&filters=ex1%3a"ez5"`;
+            const html = await fetchWithRetry(searchUrl, MAX_RETRIES_PER_FETCH);
+            const $ = cheerio.load(html);
 
-        const linkPromises = $('a').map(async (index, element) => {
-            const link = $(element).attr('href');
-            if (!link) return null;
+            const articleElements = $("li.b_algo");
 
-            const fullLink = normalizeUrl(new URL(link, url).href);
+            for (let i = 0; i < articleElements.length; i++) {
+                const article = articleElements[i];
+                const titleElement = $(article).find("h2");
+                const linkElement = titleElement.find("a");
+                const dateElement = $(article).find("span.news_dt");
 
-            // Acquire lock before checking and potentially adding the link
-            const unlock = await lock.acquire();
-            try {
-                // Double-check if the link has been added
-                if (!workerAddedLinks.has(fullLink) && !newlyAddedLinks.has(fullLink)) {
-                    if (isWebsiteValid(normalizeUrl(url), fullLink)) {
-                        const surroundingElement = $(element).closest('article,div,section,p');
-                        const title = extractTitleText(surroundingElement);
-                        const surroundingText = cleanText(surroundingElement.text().trim());
-                        const dateText = extractDateText(surroundingElement);
+                if (titleElement.length && linkElement.length && dateElement.length) {
+                    const title = titleElement.text().trim();
+                    const link = normalizeUrl(linkElement.attr("href"));
+                    const dateText = dateElement.text().trim();
 
-                        if (isRecent(dateText)) {
-                            const { score, mostCommonTerm } = relevanceScoreAndMaxCommonFoundTerm(title + ' ' + surroundingText);
+                    if (!isWebsiteValid(url, link)) continue;
 
-                            if (score > 0) {
-                                // Add to both sets immediately
-                                workerAddedLinks.add(fullLink);
-                                newlyAddedLinks.add(fullLink);
+                    // Acquire lock before checking and potentially adding the link
+                    const unlock = await lock.acquire();
+                    try {
+                        // Double-check if the link has been added
+                        if (!workerAddedLinks.has(link) && !newlyAddedLinks.has(link)) {
+                            if (isRecent(dateText)) {
+                                let articleContent;
+                                try {
+                                    articleContent = await extractArticleText(link);
+                                } catch (error) {
+                                    console.error(`Error extracting text from ${link}: ${error.message}`);
+                                    continue;
+                                }
 
-                                console.log(`Added article! - ${fullLink}`);
+                                const { score, mostCommonTerm } = relevanceScoreAndMaxCommonFoundTerm(title + ' ' + articleContent);
 
-                                results[mostCommonTerm].add({
-                                    title: title,
-                                    link: fullLink,
-                                    summary: STRING_PLACEHOLDER,
-                                    score: score,
-                                    term: mostCommonTerm,
-                                    fullText: STRING_PLACEHOLDER,
-                                    date: dateText
-                                });
+                                if (score > 0) {
+                                    // Add to both sets immediately
+                                    workerAddedLinks.add(link);
+                                    newlyAddedLinks.add(link);
 
-                                // Notify main thread immediately
-                                parentPort.postMessage({ type: 'addLinks', links: [fullLink] });
+                                    console.log(`Added article! - ${link}`);
+
+                                    results[mostCommonTerm].add({
+                                        title: title,
+                                        link: link,
+                                        summary: STRING_PLACEHOLDER,
+                                        score: score,
+                                        term: mostCommonTerm,
+                                        fullText: articleContent,
+                                        date: dateText
+                                    });
+
+                                    // Notify main thread immediately
+                                    parentPort.postMessage({ type: 'addLinks', links: [link] });
+                                }
                             }
                         }
+                    } finally {
+                        unlock();
                     }
+
+                    // Add a small delay to reduce the chance of race conditions
+                    await sleep(100);
                 }
-            } finally {
-                unlock();
             }
-
-            // Add a small delay to reduce the chance of race conditions
-            await sleep(100);
-
-            return null;
-        }).get();
-
-        await Promise.all(linkPromises);
-
-    } catch (error) {
-        console.error(`Error crawling ${url} after ${MAX_RETRIES_PER_FETCH} retries: ${error.message}`);
-        if (error.response) {
-            console.error(`Status: ${error.response.status}, Data: ${JSON.stringify(error.response.data)}`);
+        } catch (error) {
+            console.error(`Error crawling ${url} for term ${term}: ${error.message}`);
+            if (error.response) {
+                console.error(`Status: ${error.response.status}, Data: ${JSON.stringify(error.response.data)}`);
+            }
         }
     }
 
