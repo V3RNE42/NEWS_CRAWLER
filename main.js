@@ -737,7 +737,12 @@ const removeRedundantArticles = async (results) => {
     return results;
 }
 
-async function arrangeArticles(results) {
+/**
+ * Arranges the articles from the given results object based on their terms.
+ *
+ * @param {Object} results - An object containing articles grouped by terms.
+ * @return {Promise<Object>} - A promise that resolves to an object with articles reorganized by term */
+async function removeIrrelevantArticles(results) {
     let reorganizedResults = {};
 
     // Initialize reorganizedResults with all terms from the original results
@@ -747,7 +752,7 @@ async function arrangeArticles(results) {
 
     for (const [term, articles] of Object.entries(results)) {
         for (let article of articles) {
-            if (article.fullText === STRING_PLACEHOLDER) {
+            if (article.fullText === EMPTY_STRING) {
                 try {
                     article.fullText = await extractArticleText(article.link);
                 } catch (error) {
@@ -765,15 +770,7 @@ async function arrangeArticles(results) {
                 continue; // Skip this article if it's not relevant
             }
 
-            let { score, mostCommonTerm } = relevanceScoreAndMaxCommonFoundTerm(textToAnalyze);
-            article.score = score;
-            article.term = mostCommonTerm;
-
-            if (!mostCommonTerm || !reorganizedResults.hasOwnProperty(mostCommonTerm)) {
-                mostCommonTerm = term;
-            }
-
-            reorganizedResults[mostCommonTerm].push(article);
+            reorganizedResults[term].push(article);
         }
     }
 
@@ -796,7 +793,7 @@ const saveResults = async (results) => {
 
     const thisIsTheTime = checkCloseToEmailBracketEnd(emailEndTime);
     if (thisIsTheTime) {
-        results = await arrangeArticles(results);
+        results = await removeIrrelevantArticles(results);
         results = await removeRedundantArticles(results);
         topArticles = extractTopArticles(results);
         numTopArticles = topArticles.length;
