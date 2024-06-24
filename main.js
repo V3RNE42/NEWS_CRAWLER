@@ -10,6 +10,7 @@ const { Worker, isMainThread, parentPort, workerData } = require('worker_threads
 const { RateLimiter } = require('limiter');
 const os = require('os');
 const { parse, differenceInHours } = require('date-fns');
+const { es, enUS } = require('date-fns/locale');
 let { terms, websites } = require("./terminos");
 const config = require("./config.json");
 const { getMainTopics, sanitizeHtml } = require("./text_analysis/topics_extractor");
@@ -91,43 +92,47 @@ const sleep = async (ms) => new Promise(resolve => setTimeout(resolve, ms));
  * @param {string} url - The URL of the article.
  * @return {Promise<string>} A Promise that resolves to the extracted text content. */
 async function extractArticleText(url) {
-    const browser = await puppeteer.launch({
-        headless: true,
-        args: ['--no-sandbox', '--disable-setuid-sandbox'],
-        executablePath: BROWSER_PATH
-    });
-    const page = await browser.newPage();
-    await page.goto(url, { waitUntil: 'domcontentloaded' });
+    try {
+        const browser = await puppeteer.launch({
+            headless: true,
+            args: ['--no-sandbox', '--disable-setuid-sandbox'],
+            executablePath: BROWSER_PATH
+        });
+        const page = await browser.newPage();
+        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
 
-    let articleText = await page.evaluate(() => {
-        const mainSelectors = [
-            'article', 'main', 'section', '.article-body',
-            '.content', '.main-content', '.entry-content',
-            '.post-content', '.story-body', '.news-article'
-        ];
+        let articleText = await page.evaluate(() => {
+            const mainSelectors = [
+                'article', 'main', 'section', '.article-body',
+                '.content', '.main-content', '.entry-content',
+                '.post-content', '.story-body', '.news-article'
+            ];
 
-        let mainElement = null;
-        for (let selector of mainSelectors) {
-            mainElement = document.querySelector(selector);
-            if (mainElement) break;
+            let mainElement = null;
+            for (let selector of mainSelectors) {
+                mainElement = document.querySelector(selector);
+                if (mainElement) break;
+            }
+
+            if (!mainElement) return '';
+
+            return mainElement.innerText;
+        });
+
+        await browser.close();
+
+        if (articleText === EMPTY_STRING) {
+            const response = await fetch(url);
+            const html = await response.text();
+            const $ = cheerio.load(html);
+            articleText = $.html();
         }
 
-        if (!mainElement) return '';
-
-        const textContent = mainElement.innerText;
-        return textContent;
-    });
-
-    await browser.close();
-
-    if (articleText === EMPTY_STRING) {
-        const response = await fetch(url);
-        const html = await response.text();
-        const $ = cheerio.load(html);
-        articleText = $.html();
+        return cleanText(articleText);
+    } catch (error) {
+        console.error(`Error extracting text from ${url}: ${error.message}`);
+        return EMPTY_STRING;
     }
-
-    return cleanText(articleText);
 }
 
 /** Cleans the given text by removing HTML tags and trimming whitespace
@@ -320,27 +325,78 @@ const summarizeText = async (link, fullText, numberOfLinks, topic) => {
 const isRecent = (dateText) => {
     if (!dateText) return false;
 
-    const today = new Date();
-    const yesterday = new Date(today);
-    yesterday.setDate(yesterday.getDate() - 1);
+    const now = new Date();
+    let date;
 
-    const todayStr = `${today.getMonth() + 1}/${today.getDate()}/${today.getFullYear()}`;
-    const yesterdayStr = `${yesterday.getMonth() + 1}/${yesterday.getDate()}/${yesterday.getFullYear()}`;
+    // Handle relative time in both Spanish and English
+    const relativeMatchES = dateText.match(/hace (\d+) (minutos?|horas?|días?|semanas?|meses?)/i);
+    const relativeMatchEN = dateText.match(/(\d+) (minute|hour|day|week|month)s? ago/i);
 
-    const recentKeywords = [
-        "hours ago", "hour ago", "minutes ago", "minute ago", "just now",
-        "hora", "horas", "minuto", "minutos", "segundos", "justo ahora",
-        "today", "hoy", "yesterday", "ayer"
-    ];
+    if (relativeMatchES || relativeMatchEN) {
+        const [_, amount, unit] = relativeMatchES || relativeMatchEN;
+        date = new Date(now);
+        switch(unit.toLowerCase()) {
+            case 'minuto':
+            case 'minutos':
+            case 'minute':
+            case 'minutes':
+                date.setMinutes(date.getMinutes() - parseInt(amount));
+                break;
+            case 'hora':
+            case 'horas':
+            case 'hour':
+            case 'hours':
+                date.setHours(date.getHours() - parseInt(amount));
+                break;
+            case 'día':
+            case 'días':
+            case 'day':
+            case 'days':
+                date.setDate(date.getDate() - parseInt(amount));
+                break;
+            case 'semana':
+            case 'semanas':
+            case 'week':
+            case 'weeks':
+                date.setDate(date.getDate() - (parseInt(amount) * 7));
+                break;
+            case 'mes':
+            case 'meses':
+            case 'month':
+            case 'months':
+                date.setMonth(date.getMonth() - parseInt(amount));
+                break;
+        }
+    } else {
+        // Handle absolute dates (including Spanish, English, and European formats)
+        const formats = [
+            'dd/MM/yyyy',
+            'MM/dd/yyyy',
+            'dd-MM-yyyy',
+            'yyyy-MM-dd',
+            'd MMMM yyyy',
+            'MMMM d, yyyy',
+            'd MMM yyyy',
+            'MMM d, yyyy'
+        ];
+        
+        for (const format of formats) {
+            // Try parsing with Spanish locale
+            date = parse(dateText, format, new Date(), { locale: es });
+            if (!isNaN(date)) break;
 
-    const lowercaseDateText = dateText.toLowerCase();
+            // If Spanish fails, try English locale
+            date = parse(dateText, format, new Date(), { locale: enUS });
+            if (!isNaN(date)) break;
+        }
 
-    return (
-        recentKeywords.some(keyword => lowercaseDateText.includes(keyword)) ||
-        dateText.includes(todayStr) ||
-        dateText.includes(yesterdayStr) ||
-        /\d+\s+(minute|hour|día|día|h)\s+ago/i.test(dateText)
-    );
+        if (isNaN(date)) {
+            console.warn(`Could not parse date: ${dateText}`);
+            return false;
+        }
+    }
+
+    return differenceInHours(now, date) < 24;
 };
 
 async function fetchWithRetry(url, retries = 0, initialDelay = INITIAL_DEALY) {
@@ -496,6 +552,8 @@ async function crawlWebsite(url, terms, workerAddedLinks, newlyAddedLinks) {
     let results = {};
     terms.forEach(term => results[term] = new Set());
 
+    console.log(`Crawling  ${url}...`);
+
     for (const term of terms) {
         try {
             const searchUrl = `https://www.bing.com/search?q=${encodeURIComponent(term)}+site:${encodeURIComponent(url)}&filters=ex1%3a"ez5"`;
@@ -646,7 +704,6 @@ const crawlWebsites = async () => {
 
     return allResults;
 };
-
 
 /**
  * Removes redundant articles from the given results object.
