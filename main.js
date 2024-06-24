@@ -84,7 +84,6 @@ async function assignBrowserPath() {
 }
 
 const todayDate = () => new Date().toISOString().split("T")[0];
-const TODAY = todayDate();
 
 const sleep = async (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -317,6 +316,7 @@ const summarizeText = async (link, fullText, numberOfLinks, topic) => {
             response = await getOpenAIResponse(text, topic, maxTokens);
         } else {
             response = FAILED_SUMMARY_MSSG;
+            url = link;
         }
         count++;
     }
@@ -325,6 +325,11 @@ const summarizeText = async (link, fullText, numberOfLinks, topic) => {
 };
 
 
+/**
+ * Checks if a given date is recent.
+ *
+ * @param {string} dateText - The date to be checked.
+ * @return {boolean} Returns true if the date is recent, false otherwise.   */
 const isRecent = (dateText) => {
     if (!dateText) return false;
 
