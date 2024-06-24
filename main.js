@@ -33,6 +33,7 @@ const FAILED_SUMMARY_MSSG = "No se pudo generar un resumen";
 const EMPTY_STRING = "";
 const CRAWLED_RESULTS_JSON = "crawled_results.json";
 const CRAWL_COMPLETE_FLAG = "crawl_complete.flag";
+const MOST_COMMON_TERM = "Most_Common_Term";
 
 class Lock {
     constructor() {
@@ -785,7 +786,7 @@ const saveResults = async (results) => {
     const flagPath = path.join(__dirname, CRAWL_COMPLETE_FLAG);
     let topArticles = [];
     let numTopArticles = 0;
-    let mostCommonTerm = "Most_Common_Term";
+    let mostCommonTerm = MOST_COMMON_TERM;
     let link = EMPTY_STRING, summary = EMPTY_STRING;
 
     const thisIsTheTime = checkCloseToEmailBracketEnd(emailEndTime);
@@ -948,7 +949,17 @@ const sendEmail = async () => {
     const subject = `Noticias Frescas ${todayDate()} - ${mostFrequentTerm}`;
     let topArticles = results.topArticles ?? [];
 
-    //Edge case of summary not being present
+    //Edge case of topArticles not extracted yet
+    if (totalLinks > 0) {
+        if (topArticles == []) {
+            topArticles = await extractTopArticles(results.results);
+        }
+        if (mostFrequentTerm === MOST_COMMON_TERM || mostFrequentTerm === EMPTY_STRING) {
+            mostFrequentTerm = mostCommonTerms(results.results);
+        }
+    }
+
+    //Edge case of summaries not being present
     for (let i = 0; i < topArticles.length; i++) {
         let link = EMPTY_STRING, summary = EMPTY_STRING;
         if (topArticles[i].summary === STRING_PLACEHOLDER ||
@@ -962,11 +973,6 @@ const sendEmail = async () => {
             topArticles[i].summary = summary;
             topArticles[i].link = link !== EMPTY_STRING ? link : topArticles[i].link;
         }
-    }
-
-    //Edge case of mostFrequentTerm being the default "Most_Common_Term"
-    if (mostFrequentTerm === "Most_Common_Term" || mostFrequentTerm === "") {
-        mostFrequentTerm = mostCommonTerms(results);
     }
 
     while (!fs.existsSync(path.join(__dirname, CRAWL_COMPLETE_FLAG)) || emailTime.getTime() > Date.now()) {
