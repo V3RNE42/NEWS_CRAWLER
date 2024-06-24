@@ -24,7 +24,7 @@ const SENSITIVITY = config.text_analysis.topic_sensitivity;
 const MAX_TOKENS_PER_CALL = config.openai.max_tokens_per_call;
 const SIMILARITY_THRESHOLD = config.text_analysis.max_similarity;
 const MAX_RETRIES_PER_FETCH = 3; //to be managed by user configuration
-const INITIAL_DEALY = 2000; //to be managed by user configuration
+const INITIAL_DEALY = 500; //to be managed by user configuration
 let BROWSER_PATH;
 
 const STRING_PLACEHOLDER = "placeholder";
@@ -421,7 +421,7 @@ const isRecent = (dateText) => {
 
 async function fetchWithRetry(url, retries = 0, initialDelay = INITIAL_DEALY) {
     try {
-        const randomDelay = Math.floor(Math.random() * 3000) + 1000;
+        const randomDelay = Math.floor(Math.random() * initialDelay);
         await sleep(randomDelay);
         await rateLimiter.removeTokens(1);
         const response = await axios.get(url, {
@@ -531,42 +531,6 @@ function createWorker(workerData) {
         });
     });
 }
-
-const extractTitleText = (element) => {
-    const titlePatterns = [
-        'h1',
-        'h2',
-        'h3',
-        'title',
-        '.headline',
-        '.article-title',
-        '.news-title',
-        '[data-headline]',
-        '[data-title]',
-        'meta[property="og:title"]',
-        'meta[name="twitter:title"]'
-    ];
-
-    for (const pattern of titlePatterns) {
-        const titleElement = element.find(pattern);
-        if (titleElement.length) {
-            if (pattern.startsWith('meta')) {
-                const content = titleElement.attr('content');
-                if (content) {
-                    return content.trim();
-                }
-            } else {
-                const titleText = titleElement.text().trim();
-                if (titleText) {
-                    return titleText;
-                }
-            }
-        }
-    }
-
-    const fallbackTitle = element.text().trim();
-    return fallbackTitle;
-};
 
 async function crawlWebsite(url, terms, workerAddedLinks, newlyAddedLinks) {
     let results = {};
