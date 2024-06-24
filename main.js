@@ -734,9 +734,10 @@ const removeRedundantArticles = async (results) => {
 async function arrangeArticles(results) {
     let reorganizedResults = {};
 
-    terms.forEach(term => {
+    // Initialize reorganizedResults with all terms from the original results
+    for (const term of Object.keys(results)) {
         reorganizedResults[term] = [];
-    });
+    }
 
     for (const [term, articles] of Object.entries(results)) {
         for (let article of articles) {
@@ -750,16 +751,21 @@ async function arrangeArticles(results) {
             }
 
             let title = article.title;
+            let textToAnalyze = title.concat(' ',article.fullText);
 
-            let mainTopics = getMainTopics(title.concat(' ',article.fullText), LANGUAGE, SENSITIVITY);
+            let mainTopics = getMainTopics(textToAnalyze, LANGUAGE, SENSITIVITY);
             if (!mainTopics.some(topic => terms.includes(topic.toLowerCase()))) {
                 console.log(`Irrelevant article discarded: ${article.link}`);
                 continue; // Skip this article if it's not relevant
             }
 
-            let { score, mostCommonTerm } = relevanceScoreAndMaxCommonFoundTerm(article.fullText);
+            let { score, mostCommonTerm } = relevanceScoreAndMaxCommonFoundTerm(textToAnalyze);
             article.score = score;
             article.term = mostCommonTerm;
+
+            if (!mostCommonTerm || !reorganizedResults.hasOwnProperty(mostCommonTerm)) {
+                mostCommonTerm = term;
+            }
 
             reorganizedResults[mostCommonTerm].push(article);
         }
