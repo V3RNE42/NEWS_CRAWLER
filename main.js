@@ -25,6 +25,7 @@ const MAX_TOKENS_PER_CALL = config.openai.max_tokens_per_call;
 const SIMILARITY_THRESHOLD = config.text_analysis.max_similarity;
 const MAX_RETRIES_PER_FETCH = 3; //to be managed by user configuration
 const INITIAL_DEALY = 500; //to be managed by user configuration
+const FIFTEEN_MINUTES = 15 * 60000;
 let BROWSER_PATH;
 
 const STRING_PLACEHOLDER = "placeholder";
@@ -480,12 +481,12 @@ const normalizeUrl = (url) => {
  * @param {Object} endTime - An object containing the hour and minute of the end time.
  * @param {number} endTime.hour - The hour of the end time.
  * @param {number} endTime.minute - The minute of the end time.
- * @return {boolean} Returns true if the current time is within 30 minutes of the end time, false otherwise.    */
+ * @return {boolean} Returns true if the current time is within 15 minutes of the end time, false otherwise.    */
 const checkCloseToEmailBracketEnd = (endTime) => {
     const now = new Date();
     const end = new Date();
     end.setHours(endTime.hour, endTime.minute, 0, 0);
-    const tenMinutesBeforeEnd = new Date(end.getTime() - 30 * 60000);
+    const tenMinutesBeforeEnd = new Date(end.getTime() - FIFTEEN_MINUTES);
     return now >= tenMinutesBeforeEnd && now < end;
 };
 
@@ -748,7 +749,7 @@ async function arrangeArticles(results) {
                 }
             }
 
-            let mainTopics = getMainTopics(article.fullText, LANGUAGE, SENSITIVITY);
+            let mainTopics = getMainTopics(article.title.concat(' ',article.fullText), LANGUAGE, SENSITIVITY);
             if (!mainTopics.some(topic => terms.includes(topic.toLowerCase()))) {
                 console.log(`Irrelevant article discarded: ${article.link}`);
                 continue; // Skip this article if it's not relevant
