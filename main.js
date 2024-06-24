@@ -32,19 +32,36 @@ const EMPTY_STRING = "";
 const CRAWLED_RESULTS_JSON = "crawled_results.json";
 const CRAWL_COMPLETE_FLAG = "crawl_complete.flag";
 
-class AsyncSet {
+class Lock {
     constructor() {
-        this.set = new Set();
+        this._locked = false;
+        this._waiting = [];
     }
-    async has(item) {
-        return this.set.has(item);
-    }
-    async add(item) {
-        this.set.add(item);
+
+    async acquire() {
+        const unlock = () => {
+            let nextResolve;
+            if (this._waiting.length > 0) {
+                nextResolve = this._waiting.shift();
+            } else {
+                this._locked = false;
+            }
+            return nextResolve && nextResolve(unlock);
+        };
+
+        if (this._locked) {
+            return new Promise(resolve => this._waiting.push(resolve));
+        } else {
+            this._locked = true;
+            return Promise.resolve(unlock);
+        }
     }
 }
 
-let seenLinks = new AsyncSet();
+
+let addedLinks = new Set();
+let workers = [];
+const lock = new Lock();
 terms = terms.map((term) => term.toLowerCase());
 
 const parseTime = (timeStr) => {
@@ -302,25 +319,24 @@ const summarizeText = async (link, fullText, numberOfLinks, topic) => {
 
 const extractDateText = (element) => {
     const datePatterns = [
-        'time',
-        'span',
-        '[data-date]',
-        '[datetime]',
-        '[data-publish-date]',
-        '[date-publish-date]',
-        '[data-pubdate]',
-        '[date-pubdate]',
-        '[data-created]',
-        '[date-created]',
-        '[date]',
-        '.date-group-published',
-        '.published-date',
-        '.post-date',
-        '.entry-date',
-        '.article-date',
-        '.meta-date'
+        'time', 'span', '[data-date]', '[datetime]', '[data-publish-date]',
+        '[date-publish-date]', '[data-pubdate]', '[date-pubdate]', '[data-created]',
+        '[date-created]', '[date]', '.date-group-published', '.published-date',
+        '.post-date', '.entry-date', '.article-date', '.meta-date'
     ];
 
+    // RegEx patterns for various date formats (European/Spanish priority)
+    const dateRegexPatterns = [
+        /(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})/,  // dd/mm/yyyy or dd-mm-yyyy
+        /(\d{1,2}) de (?:enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)(?:,? de)? (\d{2,4})/i,  // dd de mes de yyyy
+        /(\d{1,2}) (?:ene|feb|mar|abr|may|jun|jul|ago|sep|oct|nov|dic)\.? (?:de )?(\d{2,4})/i,  // dd mes yyyy
+        /(\d{4})[/-](\d{1,2})[/-](\d{1,2})/,  // yyyy/mm/dd or yyyy-mm-dd
+        /hace (\d+) (?:minutos?|horas?|días?|semanas?|meses?)/i,  // relative time in Spanish
+    ];
+
+    const fullText = element.text().trim();
+
+    // First, try to find a date using the specific elements
     for (const pattern of datePatterns) {
         const dateElement = element.find(pattern);
         if (dateElement.length) {
@@ -331,57 +347,65 @@ const extractDateText = (element) => {
         }
     }
 
-    return '';
-};
-
-// Function to generate exhaustive date formats
-const generateDateFormats = () => {
-    const delimiters = ['-', '/', ' '];
-    const orders = [
-        ['yyyy', 'MM', 'dd'],
-        ['yyyy', 'dd', 'MM'],
-        ['MM', 'dd', 'yyyy'],
-        ['dd', 'MM', 'yyyy']
-    ];
-
-    const formats = [];
-
-    orders.forEach(order => {
-        delimiters.forEach(delimiter => {
-            formats.push(order.join(delimiter));
-            formats.push(order.join(`${delimiter}HH:mm`));
-            formats.push(order.join(`${delimiter}HH:mm:ss`));
-            formats.push(order.join(`${delimiter}HH:mm:ss.SSS`));
-        });
-    });
-
-    // Adding verbose month formats
-    formats.push('MMMM d, yyyy');
-    formats.push('MMM d, yyyy');
-    formats.push('d MMMM yyyy');
-    formats.push('d MMM yyyy');
-
-    return formats;
-};
-
-const isRecent = (dateText) => {
-    const now = new Date(TODAY);
-    let date;
-    const formats = generateDateFormats();
-
-    for (const format of formats) {
-        try {
-            date = parse(dateText, format, new Date());
-            if (!isNaN(date)) {
-                break;
-            }
-        } catch (e) {
-            continue;
+    // If no date found in specific elements, try RegEx on the full text
+    for (const regex of dateRegexPatterns) {
+        const match = fullText.match(regex);
+        if (match) {
+            return match[0];
         }
     }
 
-    if (!date || isNaN(date)) {
-        return false;
+    return '';
+};
+
+const isRecent = (dateText) => {
+    if (!dateText) return false;
+
+    const now = new Date();
+    let date;
+
+    // Handle relative time
+    const relativeMatch = dateText.match(/hace (\d+) (minutos?|horas?|días?|semanas?|meses?)/i);
+    if (relativeMatch) {
+        const [_, amount, unit] = relativeMatch;
+        date = new Date(now);
+        switch (unit.toLowerCase()) {
+            case 'minuto':
+            case 'minutos':
+                date.setMinutes(date.getMinutes() - parseInt(amount));
+                break;
+            case 'hora':
+            case 'horas':
+                date.setHours(date.getHours() - parseInt(amount));
+                break;
+            case 'día':
+            case 'días':
+                date.setDate(date.getDate() - parseInt(amount));
+                break;
+            case 'semana':
+            case 'semanas':
+                date.setDate(date.getDate() - (parseInt(amount) * 7));
+                break;
+            case 'mes':
+            case 'meses':
+                date.setMonth(date.getMonth() - parseInt(amount));
+                break;
+        }
+    } else {
+        // Handle absolute dates
+        const formats = [
+            'dd/MM/yyyy', 'dd-MM-yyyy', 'd MMMM yyyy', 'd MMM yyyy',
+            'yyyy/MM/dd', 'yyyy-MM-dd'
+        ];
+
+        for (const format of formats) {
+            date = parse(dateText, format, new Date());
+            if (!isNaN(date)) break;
+        }
+
+        if (isNaN(date)) {
+            return false;
+        }
     }
 
     return differenceInHours(now, date) < 24;
@@ -468,13 +492,34 @@ const rateLimiter = new RateLimiter({
  * @return {Promise<any>} A promise that resolves with the response from the worker */
 function createWorker(workerData) {
     return new Promise((resolve, reject) => {
-        const worker = new Worker(__filename, { workerData });
-        worker.on('message', resolve);
+        const worker = new Worker(__filename, { workerData: { ...workerData, addedLinks: Array.from(addedLinks) } });
+        workers.push(worker);
+
+        worker.on('message', (message) => {
+            if (message.type === 'addLinks') {
+                let newLinks = false;
+                message.links.forEach(link => {
+                    if (!addedLinks.has(link)) {
+                        addedLinks.add(link);
+                        newLinks = true;
+                    }
+                });
+                if (newLinks) {
+                    for (let w of workers) {
+                        w.postMessage({ type: 'updateLinks', links: Array.from(addedLinks) });
+                    }
+                }
+            } else if (message.type === 'result') {
+                resolve(message.result);
+            }
+        });
+
         worker.on('error', reject);
         worker.on('exit', (code) => {
             if (code !== 0) {
                 reject(new Error(`Worker stopped with exit code ${code}`));
             }
+            workers = workers.filter(w => w !== worker);
         });
     });
 }
@@ -497,7 +542,6 @@ const extractTitleText = (element) => {
     for (const pattern of titlePatterns) {
         const titleElement = element.find(pattern);
         if (titleElement.length) {
-            // For meta tags, we need to get the content attribute
             if (pattern.startsWith('meta')) {
                 const content = titleElement.attr('content');
                 if (content) {
@@ -512,91 +556,112 @@ const extractTitleText = (element) => {
         }
     }
 
-    // Fallback to the text of the element itself if no specific title pattern matched
     const fallbackTitle = element.text().trim();
     return fallbackTitle;
 };
 
-async function crawlWebsite(url, terms, scrapedLinks, maxRetries = 3) {
+async function crawlWebsite(url, terms, workerAddedLinks, newlyAddedLinks) {
     let results = {};
-    terms.forEach(term => results[term] = []);
+    terms.forEach(term => results[term] = new Set());
 
     try {
-        const html = await fetchWithRetry(url, maxRetries);
+        const html = await fetchWithRetry(url, MAX_RETRIES_PER_FETCH);
         const $ = cheerio.load(html);
 
         const linkPromises = $('a').map(async (index, element) => {
             const link = $(element).attr('href');
             if (!link) return null;
 
+            const fullLink = normalizeUrl(new URL(link, url).href);
+
+            // Acquire lock before checking and potentially adding the link
+            const unlock = await lock.acquire();
             try {
-                const fullLink = normalizeUrl(new URL(link, url).href);
+                // Double-check if the link has been added
+                if (!workerAddedLinks.has(fullLink) && !newlyAddedLinks.has(fullLink)) {
+                    if (isWebsiteValid(normalizeUrl(url), fullLink)) {
+                        const surroundingElement = $(element).closest('article,div,section,p');
+                        const title = extractTitleText(surroundingElement);
+                        const surroundingText = cleanText(surroundingElement.text().trim());
+                        const dateText = extractDateText(surroundingElement);
 
-                if (isWebsiteValid(normalizeUrl(url), fullLink) && !(await scrapedLinks.has(fullLink))) {
-                    const surroundingElement = $(element).closest('article,div,section,p');
-                    const title = extractTitleText(surroundingElement);
-                    const surroundingText = cleanText(surroundingElement.text().trim());
-                    const dateText = extractDateText(surroundingElement);
+                        if (isRecent(dateText)) {
+                            const { score, mostCommonTerm } = relevanceScoreAndMaxCommonFoundTerm(title + ' ' + surroundingText);
 
-                    if (isRecent(dateText)) {
-                        const { score, mostCommonTerm } = relevanceScoreAndMaxCommonFoundTerm(title + ' ' + surroundingText);
+                            if (score > 0) {
+                                // Add to both sets immediately
+                                workerAddedLinks.add(fullLink);
+                                newlyAddedLinks.add(fullLink);
 
-                        if (score > 0) {
-                            const randomDelay = Math.floor(Math.random() * 1000) + 500;
-                            await sleep(randomDelay);
+                                console.log(`Added article! - ${fullLink}`);
 
-                            await scrapedLinks.add(fullLink);
-                            console.log(`Added article! - ${fullLink}`);
+                                results[mostCommonTerm].add({
+                                    title: title,
+                                    link: fullLink,
+                                    summary: STRING_PLACEHOLDER,
+                                    score: score,
+                                    term: mostCommonTerm,
+                                    fullText: STRING_PLACEHOLDER,
+                                    date: dateText
+                                });
 
-                            return {
-                                title: title,
-                                link: fullLink,
-                                summary: STRING_PLACEHOLDER,
-                                score: score,
-                                term: mostCommonTerm,
-                                fullText: STRING_PLACEHOLDER,
-                                date: dateText
-                            };
+                                // Notify main thread immediately
+                                parentPort.postMessage({ type: 'addLinks', links: [fullLink] });
+                            }
                         }
                     }
                 }
-            } catch (error) {
-                console.warn(`Warning: Error processing link ${link} from ${url}: ${error.message}`);
+            } finally {
+                unlock();
             }
+
+            // Add a small delay to reduce the chance of race conditions
+            await sleep(100);
+
             return null;
         }).get();
 
-        const processedLinks = (await Promise.all(linkPromises)).filter(link => link !== null);
+        await Promise.all(linkPromises);
 
-        processedLinks.forEach(link => {
-            if (results[link.term]) {
-                results[link.term].push(link);
-            } else {
-                results[link.term] = [link];
-            }
-        });
     } catch (error) {
-        console.error(`Error crawling ${url} after ${maxRetries} retries: ${error.message}`);
+        console.error(`Error crawling ${url} after ${MAX_RETRIES_PER_FETCH} retries: ${error.message}`);
         if (error.response) {
             console.error(`Status: ${error.response.status}, Data: ${JSON.stringify(error.response.data)}`);
         }
     }
 
+    Object.keys(results).forEach(term => {
+        results[term] = Array.from(results[term]);
+    });
+
     return results;
 }
+
+/**
+ * Splits an array into a specified number of chunks.
+ *
+ * @param {Array} array - The array to be split into chunks.
+ * @param {number} numChunks - The number of chunks to create.
+ * @return {Array<Array>} An array of chunks, each containing a portion of the original array.  */
+const chunkArray = (array, numChunks) => {
+    let set = new Set(array);
+    array = Array.from(set);
+    const chunks = Array.from({ length: numChunks }, () => []);
+    array.forEach((item, index) => {
+        chunks[index % numChunks].push(item);
+    });
+    return chunks;
+};
 
 function isWebsiteValid(baseUrl, fullLink) {
     try {
         const baseHostname = new URL(baseUrl).hostname;
         const linkHostname = new URL(fullLink).hostname;
 
-        // Check if the hostnames are exactly the same
         if (baseHostname === linkHostname) {
             return false;
         }
 
-        // Check if the link's hostname ends with the base hostname
-        // This catches cases like 'subdomain.example.com' when base is 'example.com'
         if (linkHostname.endsWith('.' + baseHostname) ||
             linkHostname.includes(baseHostname)) {
             return true;
@@ -615,29 +680,32 @@ function isWebsiteValid(baseUrl, fullLink) {
  * @return {Promise<Object>} An object containing arrays of articles for each term. */
 const crawlWebsites = async () => {
     const allResults = {};
-    for (const term of terms) allResults[term] = [];
+    for (const term of terms) allResults[term] = new Set();
 
     const maxConcurrentWorkers = os.cpus().length;
-    const chunkSize = Math.ceil(websites.length / maxConcurrentWorkers);
-    const chunks = [];
+    const websiteChunks = chunkArray(websites, Math.ceil(websites.length / maxConcurrentWorkers));
 
-    for (let i = 0; i < websites.length; i += chunkSize) {
-        chunks.push(websites.slice(i, i + chunkSize));
-    }
+    const workerPromises = websiteChunks.map(websiteChunk =>
+        createWorker({ websites: websiteChunk, terms })
+    );
 
-    const workerPromises = chunks.map(chunk => createWorker({ chunk, terms, seenLinks: Array.from(seenLinks) }));
+    console.log("Crawling websites...");
+
     const results = await Promise.all(workerPromises);
 
     for (const result of results) {
         for (const [term, articles] of Object.entries(result.articles)) {
-            allResults[term].push(...articles);
+            articles.forEach(article => allResults[term].add(article));
         }
-        // Update seenLinks with links from this worker
-        result.seenLinks.forEach(link => seenLinks.add(link));
     }
+
+    Object.keys(allResults).forEach(term => {
+        allResults[term] = Array.from(allResults[term]);
+    });
 
     return allResults;
 };
+
 
 /**
  * Removes redundant articles from the given results object.
@@ -776,9 +844,8 @@ const loadPreviousResults = () => {
                 throw new Error('Invalid results structure');
             }
 
-            let seenLinks = new Set();
             for (const articles of Object.values(previousResults.results)) {
-                articles.forEach(article => seenLinks.add(article.link));
+                articles.forEach(article => addedLinks.add(article.link));
             }
 
             return previousResults.results;
@@ -978,6 +1045,7 @@ const sendEmail = async () => {
     }
 };
 
+
 const main = async () => {
     let resultados;
     let keepGoing = !(checkCloseToEmailBracketEnd(emailEndTime));
@@ -1003,35 +1071,8 @@ const main = async () => {
     await sendEmail();
 };
 
-
 if (isMainThread) {
     // Main thread code
-    const main = async () => {
-        let resultados;
-        let keepGoing = !(checkCloseToEmailBracketEnd(emailEndTime));
-
-        while (keepGoing) {
-            if (checkCloseToEmailBracketEnd(emailEndTime)) {
-                keepGoing = false;
-                break;
-            }
-            resultados = loadPreviousResults();
-            const results = await crawlWebsites();
-            for (const [term, articles] of Object.entries(results)) {
-                resultados[term].push(...articles);
-            }
-
-            await saveResults(resultados);
-        }
-
-        if (!fs.existsSync(path.join(__dirname, CRAWL_COMPLETE_FLAG))) {
-            fs.writeFileSync(path.join(__dirname, CRAWL_COMPLETE_FLAG), "Crawling complete");
-        }
-
-        await sendEmail();
-    };
-
-    // Using IIFE to handle top-level await
     (async () => {
         await assignBrowserPath();
         console.log(`Webcrawler scheduled to run indefinitely. Emails will be sent daily at ${config.time.email}`);
@@ -1045,28 +1086,48 @@ if (isMainThread) {
     })();
 } else {
     // Worker thread code
-    const { chunk, terms, seenLinks: initialSeenLinks } = workerData;
-    let seenLinks = new Set(initialSeenLinks);
-
     (async () => {
-        const results = {};
-        for (const term of terms) results[term] = [];
+        const { websites, terms, addedLinks: initialAddedLinks } = workerData;
+        let workerAddedLinks = new Set(initialAddedLinks);
 
-        for (const url of chunk) {
+        parentPort.on('message', (message) => {
+            if (message.type === 'updateLinks') {
+                workerAddedLinks = new Set(message.links);
+            }
+        });
+
+        const results = {};
+        for (const term of terms) results[term] = new Set();
+
+        const newlyAddedLinks = new Set();
+
+        for (const url of websites) {
             if (checkCloseToEmailBracketEnd(emailEndTime)) {
-                parentPort.postMessage({ articles: results, seenLinks: Array.from(seenLinks) });
+                parentPort.postMessage({
+                    type: 'result',
+                    result: {
+                        articles: Object.fromEntries(Object.entries(results).map(([k, v]) => [k, Array.from(v)])),
+                        addedLinks: Array.from(newlyAddedLinks)
+                    }
+                });
                 return;
             }
-            console.log(`Crawling ${url}...`);
             try {
-                const websiteResults = await crawlWebsite(url, terms, seenLinks);
+                const websiteResults = await crawlWebsite(url, terms, workerAddedLinks, newlyAddedLinks);
                 for (const [term, articles] of Object.entries(websiteResults)) {
-                    results[term].push(...articles);
+                    articles.forEach(article => results[term].add(article));
                 }
             } catch (error) {
                 console.error(`Error crawling ${url}: ${error}`);
             }
         }
-        parentPort.postMessage({ articles: results, seenLinks: Array.from(seenLinks) });
+
+        parentPort.postMessage({
+            type: 'result',
+            result: {
+                articles: Object.fromEntries(Object.entries(results).map(([k, v]) => [k, Array.from(v)])),
+                addedLinks: Array.from(newlyAddedLinks)
+            }
+        });
     })();
 }
