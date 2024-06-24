@@ -322,6 +322,7 @@ const summarizeText = async (link, fullText, numberOfLinks, topic) => {
     return { url, response };
 };
 
+
 const isRecent = (dateText) => {
     if (!dateText) return false;
 
@@ -377,7 +378,9 @@ const isRecent = (dateText) => {
             'd MMMM yyyy',
             'MMMM d, yyyy',
             'd MMM yyyy',
-            'MMM d, yyyy'
+            'MMM d, yyyy',
+            "d 'de' MMMM 'de' yyyy",
+            "d 'de' MMM'. de' yyyy"
         ];
         
         for (const format of formats) {
@@ -388,6 +391,23 @@ const isRecent = (dateText) => {
             // If Spanish fails, try English locale
             date = parse(dateText, format, new Date(), { locale: enUS });
             if (!isNaN(date)) break;
+        }
+
+        // If standard parsing fails, try custom parsing for abbreviated Spanish months
+        if (isNaN(date)) {
+            const spanishMonthAbbr = {
+                'ene': 0, 'feb': 1, 'mar': 2, 'abr': 3, 'may': 4, 'jun': 5,
+                'jul': 6, 'ago': 7, 'sept': 8, 'sep': 8, 'oct': 9, 'nov': 10, 'dic': 11
+            };
+
+            const match = dateText.match(/(\d{1,2}) de (\w{3,5})\. de (\d{4})/);
+            if (match) {
+                const [_, day, monthAbbr, year] = match;
+                const month = spanishMonthAbbr[monthAbbr.toLowerCase()];
+                if (month !== undefined) {
+                    date = new Date(parseInt(year), month, parseInt(day));
+                }
+            }
         }
 
         if (isNaN(date)) {
