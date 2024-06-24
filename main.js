@@ -750,6 +750,7 @@ async function arrangeArticles(results) {
 
             let mainTopics = getMainTopics(article.fullText, LANGUAGE, SENSITIVITY);
             if (!mainTopics.some(topic => terms.includes(topic.toLowerCase()))) {
+                console.log(`Irrelevant article discarded: ${article.link}`);
                 continue; // Skip this article if it's not relevant
             }
 
