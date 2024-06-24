@@ -749,7 +749,9 @@ async function arrangeArticles(results) {
                 }
             }
 
-            let mainTopics = getMainTopics(article.title.concat(' ',article.fullText), LANGUAGE, SENSITIVITY);
+            let title = article.title;
+
+            let mainTopics = getMainTopics(title.concat(' ',article.fullText), LANGUAGE, SENSITIVITY);
             if (!mainTopics.some(topic => terms.includes(topic.toLowerCase()))) {
                 console.log(`Irrelevant article discarded: ${article.link}`);
                 continue; // Skip this article if it's not relevant
