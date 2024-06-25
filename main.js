@@ -33,6 +33,7 @@ const FAILED_SUMMARY_MSSG = "No se pudo generar un resumen";
 const EMPTY_STRING = "";
 const CRAWLED_RESULTS_JSON = "crawled_results.json";
 const CRAWL_COMPLETE_FLAG = "crawl_complete.flag";
+const CRAWL_COMPLETE_TEXT = "Crawling complete";
 const MOST_COMMON_TERM = "Most_Common_Term";
 
 class Lock {
@@ -141,6 +142,18 @@ async function extractArticleText(url) {
  * @return {string} The cleaned text.     */
 const cleanText = (text) => {
     text = sanitizeHtml(text, { allowedTags: [], allowedAttributes: [] });
+    
+    while (text.includes("\n\n")) {
+        text = text.replace(/\n\n/g, '\n');
+    }
+    while (text.includes('  ')) {
+        text = text.replace(/'  '/g, ' ');
+    }
+
+    while (text.includes("\t\t")) {
+        text = text.replace(/\t\t/g, '\t');
+    }
+
     return text.replace(/<[^>]*>/g, ' ').trim();
 }
 
@@ -279,7 +292,7 @@ async function getProxiedContent(link) {
         const page = await browser.newPage();
         await page.goto('https://www.removepaywall.com/', { waitUntil: 'domcontentloaded' });
         await page.type('input#simple-search', link);
-        await page.click('button.p-2.5.ml-2.text-sm.font-medium.text-white.bg-blue-900.rounded-lg.border.border-blue-700.hover\\:bg-blue-800.focus\\:ring-4.focus\\:outline-none.focus\\:ring-blue-300.dark\\:bg-blue-900.dark\\:hover\\:bg-blue-1000.dark\\:focus\\:ring-blue-800');
+        await page.click('#__next > div > section > div > header > div > div:nth-child(4) > form > button');
         await page.waitForNavigation({ waitUntil: 'domcontentloaded' });
 
         const content = await page.evaluate(() => document.body.innerText);
@@ -765,7 +778,7 @@ async function removeIrrelevantArticles(results) {
             let textToAnalyze = title.concat(' ',article.fullText);
 
             let mainTopics = getMainTopics(textToAnalyze, LANGUAGE, SENSITIVITY);
-            if (!mainTopics.some(topic => terms.includes(topic.toLowerCase()))) {
+            if (!mainTopics.some(topic => terms.includes(topic.toLowerCase())) && article.score === 1) {
                 console.log(`Irrelevant article discarded: ${article.link}`);
                 continue; // Skip this article if it's not relevant
             }
@@ -816,7 +829,7 @@ const saveResults = async (results) => {
 
     fs.writeFileSync(resultsPath, JSON.stringify(resultsWithTop, null, 2));
     if (thisIsTheTime) {
-        fs.writeFileSync(flagPath, "Crawling complete");
+        fs.writeFileSync(flagPath, CRAWL_COMPLETE_TEXT);
         console.log("Crawling complete!")
     }
 
@@ -977,7 +990,7 @@ const sendEmail = async () => {
         }
     }
 
-    while (!fs.existsSync(path.join(__dirname, CRAWL_COMPLETE_FLAG)) || emailTime.getTime() > Date.now()) {
+    while (emailTime.getTime() > Date.now()) {
         console.log("Waiting...");
         await new Promise((r) => setTimeout(r, 90000));
     }
@@ -1050,7 +1063,7 @@ const main = async () => {
     let resultados;
     let keepGoing = !(checkCloseToEmailBracketEnd(emailEndTime));
 
-    while (keepGoing) {
+    while (keepGoing && !fs.existsSync(path.join(__dirname, CRAWL_COMPLETE_FLAG))) {
         if (checkCloseToEmailBracketEnd(emailEndTime)) {
             keepGoing = false;
             break;
@@ -1065,7 +1078,7 @@ const main = async () => {
     }
 
     if (!fs.existsSync(path.join(__dirname, CRAWL_COMPLETE_FLAG))) {
-        fs.writeFileSync(path.join(__dirname, CRAWL_COMPLETE_FLAG), "Crawling complete");
+        fs.writeFileSync(path.join(__dirname, CRAWL_COMPLETE_FLAG), CRAWL_COMPLETE_TEXT);
     }
 
     await sendEmail();
