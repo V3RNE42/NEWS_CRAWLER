@@ -63,7 +63,7 @@ To install and run this NodeJS webcrawler newsletter, please follow these steps:
 
 3. Navigate to the project directory in your terminal.
 
-4. Copy the content of `install.txt` file and execute it on Command Prompt.
+4. Install the dependencias with `npm install`
 
 5. Once the installation is complete, you can proceed to the usage section to configure and run the webcrawler.
 
@@ -100,7 +100,7 @@ Puedes descargarlo y usarlo como desees.
 Para utilizar esta newsletter de webcrawler de NodeJS, sigue estos pasos:
 
 1. Clona el repositorio a tu máquina local.
-2. Instala las dependencias necesarias ejecutando el contenido de `install.txt` en la consola:
+2. Instala las dependencias necesarias ejecutando en la consola:
 
     ```bash
       npm init -y
@@ -131,7 +131,7 @@ Para instalar y ejecutar esta newsletter de webcrawler de NodeJS, sigue estos pa
 
 3. Navega al directorio del proyecto en tu terminal.
 
-4. Copia el contenido del archivo `install.txt` y ejecútalo en la consola.
+4. Instala las dependencias ejecutando `npm install` en la consola.
 
 5. Una vez completada la instalación, puedes proceder a la sección de uso para configurar y ejecutar el webcrawler.
 
