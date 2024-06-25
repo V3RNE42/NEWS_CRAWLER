@@ -378,7 +378,8 @@ module.exports = {
         "vehículo aéreo no tripulado",
         "zona de alta conflictividad",
         "Área de Libre Comercio Continental Africana",
-        "Área de Libre Comercio de las Américas"],
+        "Área de Libre Comercio de las Américas"
+    ],
     websites: [
         "https://20minutos.es",
         "https://abc.es",
