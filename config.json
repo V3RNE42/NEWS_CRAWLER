@@ -1,17 +1,25 @@
 {
     "email": {
         "sender": "sender@hotmail.com",
-        "recipients": ["receriver_1@hotmail.com", "receiver_2@gmail.com"],
+        "recipients": ["receiver@gmail.com"],
         "smtp_server": "smtp.sendgrid.net",
         "smtp_port": 587,
         "smtp_user": "apikey",
         "smtp_pass": "YOUR_SENDGRID_APIKEY"
     },
     "time": {
-        "crawl": "05:35",
-        "email": "08:00"
+        "email": "23:55"
+    },
+    "browser": {
+        "path": "placeholder"
+    },
+    "text_analysis": {
+        "topic_sensitivity": 1.1,
+        "language": "ES",
+        "max_similarity": 0.9
     },
     "openai": {
-        "api_key": "YOUR_OPENAI_APIKEY"
+        "api_key": "YOUR_OPENAI_APIKEY",
+        "max_tokens_per_call": 8000
     }
 }

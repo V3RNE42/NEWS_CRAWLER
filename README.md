@@ -35,7 +35,8 @@ To use this NodeJS webcrawler newsletter, follow these steps:
 2. Install the required dependencies by running the following command in your terminal:
 
     ```
-    npm install openai@^4.0.0 node-cron path fs cheerio nodemailer node-fetch jsdom
+      npm init -y
+      npm install
     ```
 
 3. Configure the webcrawler by updating the `config.json` file with your desired settings. You can specify the target website, crawling depth, and other parameters. Refer to the [Configuration Guide](#configuration-guide) for more details.
@@ -62,7 +63,7 @@ To install and run this NodeJS webcrawler newsletter, please follow these steps:
 
 3. Navigate to the project directory in your terminal.
 
-4. Copy the content of `install.txt` file and execute it on Command Prompt.
+4. Install the dependencias with `npm install`
 
 5. Once the installation is complete, you can proceed to the usage section to configure and run the webcrawler.
 
@@ -72,10 +73,12 @@ The `config.json` file allows you to customize the behavior of the webcrawler. H
 
 - `sender`: Specify the email of the sender with an associated smtp.sendgrid account
 - `recipients`: Specify the email of the people receiving your emails.
-- `crawl`: Set the hour at which the crawling should start.
-- `email`: Set the hour from which the emails can be sent - obviously won't start until that hour is reached AND the news-crawling has finished
+- `email`: Set the hour from which the emails can be sent - obviously won't start until that hour is reached 
 - `api_key`: Set your current OpenAI API key to use the GPT-4 model for generating some email summaries.
 - `smtp_pass`: Set the SendGrid API key of your account
+- `topic_sensitivity`: Set the topic sensitivity -> The bigger the sensitivity, the less false positives will be added, but also the total amount of scraped articles - More false negatives (ranges from 1 to ∞)
+- `language`: Set the language in which the news articles will be found
+- `max_similarity`: Set the maximum cosine similarity admisible between two articles' bodies from which we'll consider both of these to be covering the same news event - making redundant at least one of these (ranges from 0 to 1)
 
 ### Customization Guide
 
@@ -97,10 +100,11 @@ Puedes descargarlo y usarlo como desees.
 Para utilizar esta newsletter de webcrawler de NodeJS, sigue estos pasos:
 
 1. Clona el repositorio a tu máquina local.
-2. Instala las dependencias necesarias ejecutando el contenido de `install.txt` en la consola:
+2. Instala las dependencias necesarias ejecutando en la consola:
 
     ```bash
-    npm install openai@^4.0.0 node-cron path fs cheerio nodemailer node-fetch jsdom
+      npm init -y
+      npm install
     ```
 
 3. Configura el webcrawler actualizando el archivo `config.json` con tus ajustes deseados. Puedes especificar el sitio web objetivo, la profundidad del crawling y otros parámetros. Consulta la [Guía de Configuración](#guía-de-configuración) para más detalles.
@@ -127,7 +131,7 @@ Para instalar y ejecutar esta newsletter de webcrawler de NodeJS, sigue estos pa
 
 3. Navega al directorio del proyecto en tu terminal.
 
-4. Copia el contenido del archivo `install.txt` y ejecútalo en la consola.
+4. Instala las dependencias ejecutando `npm install` en la consola.
 
 5. Una vez completada la instalación, puedes proceder a la sección de uso para configurar y ejecutar el webcrawler.
 
@@ -137,10 +141,12 @@ El archivo `config.json` te permite personalizar el comportamiento del webcrawle
 
 - `sender`: Especifica el correo electrónico del remitente con una cuenta asociada smtp.sendgrid
 - `recipients`: Especifica el correo electrónico de las personas que recibirán tus correos electrónicos.
-- `crawl`: Establece la hora en la que debe comenzar el rastreo.
-- `email`: Establece la hora desde la cual se pueden enviar correos electrónicos; obviamente no comenzará hasta que se haya alcanzado esa hora Y se haya completado el rastreo de noticias
+- `email`: Establece la hora a la cual se envían los correos electrónicos
 - `api_key`: Establece tu clave API actual de OpenAI para usar el modelo GPT-4 para generar algunos resúmenes de correos electrónicos.
 - `smtp_pass`: Establece la clave API de SendGrid de tu cuenta
+- `topic_sensitivity`: Establece la sensibilidad temática -> A mayor sensibilidad, menos posibles falsos positivos quedan añadidos, pero también se reduce el número total de artículos recogidos - Más falsos negativos (Va de 1 a ∞)
+- `language`: Establece el lenguage en que se van a encontrar las noticias recogidas
+- `max_similarity`: Establece la similitud de coseno máxima admisible entre dos cuerpos de noticias a partir del cual consideramos que ambas están cubriendo el mismo evento - y por lo tanto, al menos una de ellas es redundante (Va de 0 a 1)
 
 ### Guía de Personalización
 
