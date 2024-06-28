@@ -963,7 +963,7 @@ const sendEmail = async () => {
 
 //Ctrl+C triggers saving results -> Helps the testing by the developer
 process.on('SIGINT', async () => {
-    console.log(`Caught interrupt signal (Ctrl+C)\nSetting emailEndTime in ${(FIFTEEN_MINUTES/1000) - 1} minutes from now`);
+    console.log(`Caught interrupt signal (Ctrl+C)\nSetting emailEndTime in ${(MINUTES_TO_CLOSE/60000) - 1} minutes from now`);
     const now = new Date();
     emailEndTime = new Date(now.getTime() + FIFTEEN_MINUTES - 60000);
     FALSE_ALARM = true;
