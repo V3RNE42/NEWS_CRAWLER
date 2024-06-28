@@ -7,7 +7,6 @@ const axios = require("axios");
 const { OpenAI } = require("openai");
 const puppeteer = require('puppeteer');
 const { RateLimiter } = require('limiter');
-const os = require('os');
 const { parse, differenceInHours } = require('date-fns');
 const { es, enUS } = require('date-fns/locale');
 let { terms, websites } = require("./terminos");
