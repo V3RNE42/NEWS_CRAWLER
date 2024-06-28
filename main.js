@@ -1066,8 +1066,12 @@ const sendEmail = async () => {
 
 const main = async () => {
     let resultados;
+    let keepGoing = !(closeToEmailingTime());
 
-    while (!(closeToEmailingTime()) && !fs.existsSync(path.join(__dirname, CRAWL_COMPLETE_FLAG))) {
+    while (keepGoing && !fs.existsSync(path.join(__dirname, CRAWL_COMPLETE_FLAG))) {
+        if (closeToEmailingTime()) {
+            keepGoing = false;
+        }
 
         resultados = loadPreviousResults();
         const results = await crawlWebsites();
