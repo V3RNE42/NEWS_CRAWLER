@@ -23,7 +23,7 @@ const MAX_TOKENS_PER_CALL = config.openai.max_tokens_per_call;
 const SIMILARITY_THRESHOLD = config.text_analysis.max_similarity;
 const MAX_RETRIES_PER_FETCH = 3; //to be managed by user configuration
 const INITIAL_DEALY = 750; //to be managed by user configuration
-const FIFTEEN_MINUTES = 15 * 60000;
+let FIFTEEN_MINUTES = 15 * 60000;
 let BROWSER_PATH;
 
 const STRING_PLACEHOLDER = "placeholder";
@@ -43,7 +43,7 @@ const parseTime = (timeStr) => {
     return { hour, minute };
 };
 
-const emailEndTime = parseTime(config.time.email);
+let emailEndTime = parseTime(config.time.email);
 
 //FUNCTIONS
 /** Assigns a valid browser path to the BROWSER_PATH variable based on the configuration
@@ -959,6 +959,12 @@ const sendEmail = async () => {
         console.error(`Error sending emails: ${error}`);
     }
 };
+
+// Signal handling for SIGINT
+process.on('SIGINT', async () => {
+    console.log("Caught interrupt signal (Ctrl+C). Setting emailEndTime in 4 minutes from now");
+    FIFTEEN_MINUTES = 4 * 60000;
+});
 
 
 const main = async () => {
