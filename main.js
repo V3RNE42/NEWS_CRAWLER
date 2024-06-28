@@ -26,6 +26,7 @@ const SIMILARITY_THRESHOLD = config.text_analysis.max_similarity;
 const MAX_RETRIES_PER_FETCH = 3; //to be managed by user configuration
 const INITIAL_DEALY = 500; //to be managed by user configuration
 const MINUTES_TO_CLOSE = 15 * 60000;
+let FALSE_ALARM = false;
 let BROWSER_PATH;
 
 const STRING_PLACEHOLDER = "placeholder";
@@ -73,7 +74,7 @@ const parseTime = (timeStr) => {
     return { hour, minute };
 };
 
-const emailEndTime = parseTime(config.time.email);
+let emailEndTime = parseTime(config.time.email);
 
 //FUNCTIONS
 /** Assigns a valid browser path to the BROWSER_PATH variable based on the configuration
@@ -833,7 +834,7 @@ const saveResults = async (results) => {
     const resultsWithTop = { results, topArticles, mostCommonTerm };
 
     fs.writeFileSync(resultsPath, JSON.stringify(resultsWithTop, null, 2));
-    if (thisIsTheTime) {
+    if (thisIsTheTime && !(FALSE_ALARM)) {
         fs.writeFileSync(flagPath, CRAWL_COMPLETE_TEXT);
         console.log(CRAWL_COMPLETE_TEXT)
     }
@@ -1082,7 +1083,7 @@ const main = async () => {
         await saveResults(resultados);
     }
 
-    if (!fs.existsSync(path.join(__dirname, CRAWL_COMPLETE_FLAG))) {
+    if (!fs.existsSync(path.join(__dirname, CRAWL_COMPLETE_FLAG)) && !(FALSE_ALARM)) {
         fs.writeFileSync(path.join(__dirname, CRAWL_COMPLETE_FLAG), CRAWL_COMPLETE_TEXT);
     }
 
@@ -1094,6 +1095,7 @@ process.on('SIGINT', async () => {
     console.log(`Caught interrupt signal (Ctrl+C)\nSetting emailEndTime in ${(MINUTES_TO_CLOSE/1000) - 1} minutes from now`);
     const now = new Date();
     emailEndTime = new Date(now.getTime() + MINUTES_TO_CLOSE - 60000);
+    FALSE_ALARM = true;
 });
 
 if (isMainThread) {
