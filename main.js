@@ -22,7 +22,7 @@ const SENSITIVITY = config.text_analysis.topic_sensitivity;
 const MAX_TOKENS_PER_CALL = config.openai.max_tokens_per_call;
 const SIMILARITY_THRESHOLD = config.text_analysis.max_similarity;
 const MAX_RETRIES_PER_FETCH = 3; //to be managed by user configuration
-const INITIAL_DEALY = 500; //to be managed by user configuration
+const INITIAL_DEALY = 750; //to be managed by user configuration
 const FIFTEEN_MINUTES = 15 * 60000;
 let BROWSER_PATH;
 
@@ -554,23 +554,6 @@ async function crawlWebsite(url, terms) {
 
     return results;
 }
-
-
-/**
- * Splits an array into a specified number of chunks.
- *
- * @param {Array} array - The array to be split into chunks.
- * @param {number} numChunks - The number of chunks to create.
- * @return {Array<Array>} An array of chunks, each containing a portion of the original array.  */
-const chunkArray = (array, numChunks) => {
-    let set = new Set(array);
-    array = Array.from(set);
-    const chunks = Array.from({ length: numChunks }, () => []);
-    array.forEach((item, index) => {
-        chunks[index % numChunks].push(item);
-    });
-    return chunks;
-};
 
 function isWebsiteValid(baseUrl, fullLink) {
     try {
