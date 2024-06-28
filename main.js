@@ -559,6 +559,11 @@ async function crawlWebsite(url, terms, workerAddedLinks, newlyAddedLinks) {
     console.log(`Crawling  ${url}...`);
 
     for (const term of terms) {
+
+        if (checkCloseToEmailBracketEnd(emailEndTime)) {
+            return;
+        }
+
         try {
             const searchUrl = `https://www.bing.com/search?q=${encodeURIComponent(term)}+site:${encodeURIComponent(url)}&filters=ex1%3a"ez5"`;
             const html = await fetchWithRetry(searchUrl, MAX_RETRIES_PER_FETCH);
