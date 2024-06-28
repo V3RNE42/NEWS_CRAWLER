@@ -6,7 +6,6 @@ const cheerio = require('cheerio');
 const axios = require("axios");
 const { OpenAI } = require("openai");
 const puppeteer = require('puppeteer');
-const { Worker, isMainThread, parentPort, workerData } = require('worker_threads');
 const { RateLimiter } = require('limiter');
 const os = require('os');
 const { parse, differenceInHours } = require('date-fns');
@@ -36,36 +35,8 @@ const CRAWL_COMPLETE_FLAG = "crawl_complete.flag";
 const CRAWL_COMPLETE_TEXT = "Crawling complete";
 const MOST_COMMON_TERM = "Most_Common_Term";
 
-class Lock {
-    constructor() {
-        this._locked = false;
-        this._waiting = [];
-    }
-
-    async acquire() {
-        const unlock = () => {
-            let nextResolve;
-            if (this._waiting.length > 0) {
-                nextResolve = this._waiting.shift();
-            } else {
-                this._locked = false;
-            }
-            return nextResolve && nextResolve(unlock);
-        };
-
-        if (this._locked) {
-            return new Promise(resolve => this._waiting.push(resolve));
-        } else {
-            this._locked = true;
-            return Promise.resolve(unlock);
-        }
-    }
-}
-
-
 let addedLinks = new Set();
-let workers = [];
-const lock = new Lock();
+
 terms = terms.map((term) => term.toLowerCase());
 
 const parseTime = (timeStr) => {
@@ -515,44 +486,7 @@ const rateLimiter = new RateLimiter({
     fireImmediately: true
 });
 
-/** Creates a new worker thread with the specified workerData.
- * @param {Object} workerData - The data to pass to the worker.
- * @return {Promise<any>} A promise that resolves with the response from the worker */
-function createWorker(workerData) {
-    return new Promise((resolve, reject) => {
-        const worker = new Worker(__filename, { workerData: { ...workerData, addedLinks: Array.from(addedLinks) } });
-        workers.push(worker);
-
-        worker.on('message', (message) => {
-            if (message.type === 'addLinks') {
-                let newLinks = false;
-                message.links.forEach(link => {
-                    if (!addedLinks.has(link)) {
-                        addedLinks.add(link);
-                        newLinks = true;
-                    }
-                });
-                if (newLinks) {
-                    for (let w of workers) {
-                        w.postMessage({ type: 'updateLinks', links: Array.from(addedLinks) });
-                    }
-                }
-            } else if (message.type === 'result') {
-                resolve(message.result);
-            }
-        });
-
-        worker.on('error', reject);
-        worker.on('exit', (code) => {
-            if (code !== 0) {
-                reject(new Error(`Worker stopped with exit code ${code}`));
-            }
-            workers = workers.filter(w => w !== worker);
-        });
-    });
-}
-
-async function crawlWebsite(url, terms, workerAddedLinks, newlyAddedLinks) {
+async function crawlWebsite(url, terms) {
     let results = {};
     terms.forEach(term => results[term] = new Set());
 
@@ -579,50 +513,32 @@ async function crawlWebsite(url, terms, workerAddedLinks, newlyAddedLinks) {
 
                     if (!isWebsiteValid(url, link)) continue;
 
-                    // Acquire lock before checking and potentially adding the link
-                    const unlock = await lock.acquire();
-                    try {
-                        // Double-check if the link has been added
-                        if (!workerAddedLinks.has(link) && !newlyAddedLinks.has(link)) {
-                            if (isRecent(dateText)) {
-                                let articleContent;
-                                try {
-                                    articleContent = await extractArticleText(link);
-                                } catch (error) {
-                                    console.error(`Error extracting text from ${link}: ${error.message}`);
-                                    continue;
-                                }
-
-                                const { score, mostCommonTerm } = relevanceScoreAndMaxCommonFoundTerm(title + ' ' + articleContent);
-
-                                if (score > 0) {
-                                    // Add to both sets immediately
-                                    workerAddedLinks.add(link);
-                                    newlyAddedLinks.add(link);
-
-                                    console.log(`Added article! - ${link}`);
-
-                                    results[mostCommonTerm].add({
-                                        title: title,
-                                        link: link,
-                                        summary: STRING_PLACEHOLDER,
-                                        score: score,
-                                        term: mostCommonTerm,
-                                        fullText: articleContent,
-                                        date: dateText
-                                    });
-
-                                    // Notify main thread immediately
-                                    parentPort.postMessage({ type: 'addLinks', links: [link] });
-                                }
-                            }
+                    if (!addedLinks.has(link) && isRecent(dateText)) {
+                        let articleContent;
+                        try {
+                            articleContent = await extractArticleText(link);
+                        } catch (error) {
+                            console.error(`Error extracting text from ${link}: ${error.message}`);
+                            continue;
                         }
-                    } finally {
-                        unlock();
-                    }
 
-                    // Add a small delay to reduce the chance of race conditions
-                    await sleep(100);
+                        const { score, mostCommonTerm } = relevanceScoreAndMaxCommonFoundTerm(title + ' ' + articleContent);
+
+                        if (score > 0) {
+                            addedLinks.add(link);
+                            console.log(`Added article! - ${link}`);
+
+                            results[mostCommonTerm].add({
+                                title: title,
+                                link: link,
+                                summary: STRING_PLACEHOLDER,
+                                score: score,
+                                term: mostCommonTerm,
+                                fullText: articleContent,
+                                date: dateText
+                            });
+                        }
+                    }
                 }
             }
         } catch (error) {
@@ -639,6 +555,7 @@ async function crawlWebsite(url, terms, workerAddedLinks, newlyAddedLinks) {
 
     return results;
 }
+
 
 /**
  * Splits an array into a specified number of chunks.
@@ -685,19 +602,11 @@ const crawlWebsites = async () => {
     const allResults = {};
     for (const term of terms) allResults[term] = new Set();
 
-    const maxConcurrentWorkers = os.cpus().length;
-    const websiteChunks = chunkArray(websites, Math.ceil(websites.length / maxConcurrentWorkers));
-
-    const workerPromises = websiteChunks.map(websiteChunk =>
-        createWorker({ websites: websiteChunk, terms })
-    );
-
     console.log("Crawling websites...");
 
-    const results = await Promise.all(workerPromises);
-
-    for (const result of results) {
-        for (const [term, articles] of Object.entries(result.articles)) {
+    for (const url of websites) {
+        const results = await crawlWebsite(url, terms);
+        for (const [term, articles] of Object.entries(results)) {
             articles.forEach(article => allResults[term].add(article));
         }
     }
@@ -708,6 +617,7 @@ const crawlWebsites = async () => {
 
     return allResults;
 };
+
 
 /**
  * Removes redundant articles from the given results object.
@@ -1084,63 +994,14 @@ const main = async () => {
     await sendEmail();
 };
 
-if (isMainThread) {
-    // Main thread code
-    (async () => {
-        await assignBrowserPath();
-        console.log(`Webcrawler scheduled to run indefinitely. Emails will be sent daily at ${config.time.email}`);
+(async () => {
+    await assignBrowserPath();
+    console.log(`Webcrawler scheduled to run indefinitely. Emails will be sent daily at ${config.time.email}`);
 
-        while (true) {
-            console.log(`Running the web crawler at ${new Date().toISOString()}...`);
-            await main()
-                .then(() => console.log('Scheduled webcrawler run finished successfully\n\n\n'))
-                .catch(error => console.error('Error in scheduled webcrawler run:', error, '\n\n\n'));
-        }
-    })();
-} else {
-    // Worker thread code
-    (async () => {
-        const { websites, terms, addedLinks: initialAddedLinks } = workerData;
-        let workerAddedLinks = new Set(initialAddedLinks);
-
-        parentPort.on('message', (message) => {
-            if (message.type === 'updateLinks') {
-                workerAddedLinks = new Set(message.links);
-            }
-        });
-
-        const results = {};
-        for (const term of terms) results[term] = new Set();
-
-        const newlyAddedLinks = new Set();
-
-        for (const url of websites) {
-            if (checkCloseToEmailBracketEnd(emailEndTime)) {
-                parentPort.postMessage({
-                    type: 'result',
-                    result: {
-                        articles: Object.fromEntries(Object.entries(results).map(([k, v]) => [k, Array.from(v)])),
-                        addedLinks: Array.from(newlyAddedLinks)
-                    }
-                });
-                return;
-            }
-            try {
-                const websiteResults = await crawlWebsite(url, terms, workerAddedLinks, newlyAddedLinks);
-                for (const [term, articles] of Object.entries(websiteResults)) {
-                    articles.forEach(article => results[term].add(article));
-                }
-            } catch (error) {
-                console.error(`Error crawling ${url}: ${error}`);
-            }
-        }
-
-        parentPort.postMessage({
-            type: 'result',
-            result: {
-                articles: Object.fromEntries(Object.entries(results).map(([k, v]) => [k, Array.from(v)])),
-                addedLinks: Array.from(newlyAddedLinks)
-            }
-        });
-    })();
-}
+    while (true) {
+        console.log(`Running the web crawler at ${new Date().toISOString()}...`);
+        await main()
+            .then(() => console.log('Scheduled webcrawler run finished successfully\n\n\n'))
+            .catch(error => console.error('Error in scheduled webcrawler run:', error, '\n\n\n'));
+    }
+})();
