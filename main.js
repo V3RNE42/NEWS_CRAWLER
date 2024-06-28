@@ -33,7 +33,7 @@ const FAILED_SUMMARY_MSSG = "No se pudo generar un resumen";
 const EMPTY_STRING = "";
 const CRAWLED_RESULTS_JSON = "crawled_results.json";
 const CRAWL_COMPLETE_FLAG = "crawl_complete.flag";
-const CRAWL_COMPLETE_TEXT = "Crawling complete";
+const CRAWL_COMPLETE_TEXT = "Crawling completed!";
 const MOST_COMMON_TERM = "Most_Common_Term";
 
 class Lock {
@@ -497,14 +497,14 @@ const normalizeUrl = (url) => {
 /**
  * Checks if the current time is within 30 minutes of the end time.
  *
- * @param {Object} endTime - An object containing the hour and minute of the end time.
- * @param {number} endTime.hour - The hour of the end time.
- * @param {number} endTime.minute - The minute of the end time.
+ * @param {Object} emailEndTime - An object containing the hour and minute of the end time.
+ * @param {number} emailEndTime.hour - The hour of the end time.
+ * @param {number} emailEndTime.minute - The minute of the end time.
  * @return {boolean} Returns true if the current time is within 15 minutes of the end time, false otherwise.    */
-const checkCloseToEmailBracketEnd = (endTime) => {
+const closeToEmailingTime = () => {
     const now = new Date();
     const end = new Date();
-    end.setHours(endTime.hour, endTime.minute, 0, 0);
+    end.setHours(emailEndTime.hour, emailEndTime.minute, 0, 0);
     const tenMinutesBeforeEnd = new Date(end.getTime() - FIFTEEN_MINUTES);
     return now >= tenMinutesBeforeEnd && now < end;
 };
@@ -560,7 +560,7 @@ async function crawlWebsite(url, terms, workerAddedLinks, newlyAddedLinks) {
 
     for (const term of terms) {
 
-        if (checkCloseToEmailBracketEnd(emailEndTime)) {
+        if (closeToEmailingTime()) {
             return results;
         }
 
@@ -809,7 +809,7 @@ const saveResults = async (results) => {
     let mostCommonTerm = MOST_COMMON_TERM;
     let link = EMPTY_STRING, summary = EMPTY_STRING;
 
-    const thisIsTheTime = checkCloseToEmailBracketEnd(emailEndTime);
+    const thisIsTheTime = closeToEmailingTime();
     if (thisIsTheTime) {
         results = await removeIrrelevantArticles(results);
         results = await removeRedundantArticles(results);
@@ -835,7 +835,7 @@ const saveResults = async (results) => {
     fs.writeFileSync(resultsPath, JSON.stringify(resultsWithTop, null, 2));
     if (thisIsTheTime) {
         fs.writeFileSync(flagPath, CRAWL_COMPLETE_TEXT);
-        console.log("Crawling complete!")
+        console.log(CRAWL_COMPLETE_TEXT)
     }
 
     return thisIsTheTime;
@@ -1066,13 +1066,9 @@ const sendEmail = async () => {
 
 const main = async () => {
     let resultados;
-    let keepGoing = !(checkCloseToEmailBracketEnd(emailEndTime));
 
-    while (keepGoing && !fs.existsSync(path.join(__dirname, CRAWL_COMPLETE_FLAG))) {
-        if (checkCloseToEmailBracketEnd(emailEndTime)) {
-            keepGoing = false;
-            break;
-        }
+    while (!(closeToEmailingTime()) && !fs.existsSync(path.join(__dirname, CRAWL_COMPLETE_FLAG))) {
+
         resultados = loadPreviousResults();
         const results = await crawlWebsites();
         for (const [term, articles] of Object.entries(results)) {
@@ -1120,7 +1116,7 @@ if (isMainThread) {
         const newlyAddedLinks = new Set();
 
         for (const url of websites) {
-            if (checkCloseToEmailBracketEnd(emailEndTime)) {
+            if (closeToEmailingTime()) {
                 parentPort.postMessage({
                     type: 'result',
                     result: {
