@@ -8,6 +8,13 @@ const getChromiumPaths = () => {
         const platform = os.platform();
         let command;
 
+        command = 'npx puppeteer browsers install chrome';
+        exec(command, (error, stdout, stderr) => {
+            if (error) {
+                return reject(new Error(`Command failed: ${command}\n${stderr}`));
+            }
+        });
+
         switch (platform) {
             case 'win32':
                 const winPaths = [
