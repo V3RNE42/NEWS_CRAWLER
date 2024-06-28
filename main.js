@@ -631,7 +631,7 @@ async function crawlWebsite(url, terms, workerAddedLinks, newlyAddedLinks) {
                 }
             }
         } catch (error) {
-            console.error(`Error crawling ${url} for term ${term}: ${error.message}`);
+            console.error(`Error crawling ${url} for term ${term}: ${error.message.status} - ${cleanText(error.message.data)}`);
             if (error.response) {
                 console.error(`Status: ${error.response.status}, Data: ${JSON.stringify(error.response.data)}`);
             }
