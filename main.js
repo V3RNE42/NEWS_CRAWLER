@@ -467,14 +467,14 @@ const normalizeUrl = (url) => {
 /**
  * Checks if the current time is within 30 minutes of the end time.
  *
- * @param {Object} endTime - An object containing the hour and minute of the end time.
- * @param {number} endTime.hour - The hour of the end time.
- * @param {number} endTime.minute - The minute of the end time.
+ * @param {Object} emailEndTime - An object containing the hour and minute of the end time.
+ * @param {number} emailEndTime.hour - The hour of the end time.
+ * @param {number} emailEndTime.minute - The minute of the end time.
  * @return {boolean} Returns true if the current time is within 15 minutes of the end time, false otherwise.    */
-const checkCloseToEmailBracketEnd = (endTime) => {
-    const now = new Date();
-    const end = new Date();
-    end.setHours(endTime.hour, endTime.minute, 0, 0);
+const closeToEmailingTime = () => {
+    let now = new Date();
+    let end = new Date();
+    end.setHours(emailEndTime.hour, emailEndTime.minute, 0, 0);
     const tenMinutesBeforeEnd = new Date(end.getTime() - FIFTEEN_MINUTES);
     return now >= tenMinutesBeforeEnd && now < end;
 };
@@ -493,7 +493,7 @@ async function crawlWebsite(url, terms) {
 
     for (const term of terms) {
 
-        if (checkCloseToEmailBracketEnd(emailEndTime)) {
+        if (closeToEmailingTime()) {
             return results;
         }
 
@@ -593,7 +593,7 @@ const crawlWebsites = async () => {
 
     for (const url of websites) {
 
-        if (checkCloseToEmailBracketEnd(emailEndTime)) {
+        if (closeToEmailingTime()) {
             break;
         }
 
@@ -706,7 +706,7 @@ const saveResults = async (results) => {
     let mostCommonTerm = MOST_COMMON_TERM;
     let link = EMPTY_STRING, summary = EMPTY_STRING;
 
-    const thisIsTheTime = checkCloseToEmailBracketEnd(emailEndTime);
+    const thisIsTheTime = closeToEmailingTime();
     if (thisIsTheTime) {
         results = await removeIrrelevantArticles(results);
         results = await removeRedundantArticles(results);
@@ -969,13 +969,13 @@ process.on('SIGINT', async () => {
 
 const main = async () => {
     let resultados;
-    let keepGoing = !(checkCloseToEmailBracketEnd(emailEndTime));
+    let keepGoing = !(closeToEmailingTime());
 
     while (keepGoing && !fs.existsSync(path.join(__dirname, CRAWL_COMPLETE_FLAG))) {
-        if (checkCloseToEmailBracketEnd(emailEndTime)) {
+        if (closeToEmailingTime()) {
             keepGoing = false;
-            break;
         }
+
         resultados = loadPreviousResults();
         const results = await crawlWebsites();
         for (const [term, articles] of Object.entries(results)) {
