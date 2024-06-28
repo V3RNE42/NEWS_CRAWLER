@@ -960,12 +960,12 @@ const sendEmail = async () => {
     }
 };
 
-// Signal handling for SIGINT
+//Ctrl+C triggers saving results -> Helps the testing by the developer
 process.on('SIGINT', async () => {
-    console.log("Caught interrupt signal (Ctrl+C). Setting emailEndTime in 4 minutes from now");
-    FIFTEEN_MINUTES = 4 * 60000;
+    console.log(`Caught interrupt signal (Ctrl+C)\nSetting emailEndTime in ${(FIFTEEN_MINUTES/1000) - 1} minutes from now`);
+    const now = new Date();
+    emailEndTime = new Date(now.getTime() + FIFTEEN_MINUTES - 60000);
 });
-
 
 const main = async () => {
     let resultados;
