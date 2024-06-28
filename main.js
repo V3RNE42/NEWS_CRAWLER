@@ -492,6 +492,11 @@ async function crawlWebsite(url, terms) {
     console.log(`Crawling  ${url}...`);
 
     for (const term of terms) {
+
+        if (checkCloseToEmailBracketEnd(emailEndTime)) {
+            return results;
+        }
+
         try {
             const searchUrl = `https://www.bing.com/search?q=${encodeURIComponent(term)}+site:${encodeURIComponent(url)}&filters=ex1%3a"ez5"`;
             const html = await fetchWithRetry(searchUrl, MAX_RETRIES_PER_FETCH);
@@ -587,6 +592,11 @@ const crawlWebsites = async () => {
     console.log("Crawling websites...");
 
     for (const url of websites) {
+
+        if (checkCloseToEmailBracketEnd(emailEndTime)) {
+            break;
+        }
+
         const results = await crawlWebsite(url, terms);
         for (const [term, articles] of Object.entries(results)) {
             articles.forEach(article => allResults[term].add(article));
