@@ -25,7 +25,7 @@ const MAX_TOKENS_PER_CALL = config.openai.max_tokens_per_call;
 const SIMILARITY_THRESHOLD = config.text_analysis.max_similarity;
 const MAX_RETRIES_PER_FETCH = 3; //to be managed by user configuration
 const INITIAL_DEALY = 500; //to be managed by user configuration
-const FIFTEEN_MINUTES = 15 * 60000;
+const MINUTES_TO_CLOSE = 15 * 60000;
 let BROWSER_PATH;
 
 const STRING_PLACEHOLDER = "placeholder";
@@ -505,7 +505,7 @@ const closeToEmailingTime = () => {
     const now = new Date();
     const end = new Date();
     end.setHours(emailEndTime.hour, emailEndTime.minute, 0, 0);
-    const tenMinutesBeforeEnd = new Date(end.getTime() - FIFTEEN_MINUTES);
+    const tenMinutesBeforeEnd = new Date(end.getTime() - MINUTES_TO_CLOSE);
     return now >= tenMinutesBeforeEnd && now < end;
 };
 
@@ -1088,6 +1088,13 @@ const main = async () => {
 
     await sendEmail();
 };
+
+//Ctrl+C triggers saving results -> Helps the testing by the developer
+process.on('SIGINT', async () => {
+    console.log(`Caught interrupt signal (Ctrl+C)\nSetting emailEndTime in ${(MINUTES_TO_CLOSE/1000) - 1} minutes from now`);
+    const now = new Date();
+    emailEndTime = new Date(now.getTime() + MINUTES_TO_CLOSE - 60000);
+});
 
 if (isMainThread) {
     // Main thread code
