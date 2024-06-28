@@ -561,7 +561,7 @@ async function crawlWebsite(url, terms, workerAddedLinks, newlyAddedLinks) {
     for (const term of terms) {
 
         if (checkCloseToEmailBracketEnd(emailEndTime)) {
-            return;
+            return results;
         }
 
         try {
