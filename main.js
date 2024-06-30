@@ -24,9 +24,8 @@ const SENSITIVITY = config.text_analysis.topic_sensitivity;
 const MAX_TOKENS_PER_CALL = config.openai.max_tokens_per_call;
 const SIMILARITY_THRESHOLD = config.text_analysis.max_similarity;
 const MAX_RETRIES_PER_FETCH = 3; //to be managed by user configuration
-const ONE_MINUTE = 60000;
-const FIVE_MINUTES = 5 * ONE_MINUTE; //to be managed by user configuration
-const MINUTES_TO_CLOSE = 15 * ONE_MINUTE;
+const INITIAL_DEALY = 500; //to be managed by user configuration
+const MINUTES_TO_CLOSE = 10 * 60000;
 let FALSE_ALARM = false;
 let BROWSER_PATH;
 
@@ -38,34 +37,67 @@ const CRAWL_COMPLETE_FLAG = "crawl_complete.flag";
 const CRAWL_COMPLETE_TEXT = "Crawling completed!";
 const MOST_COMMON_TERM = "Most_Common_Term";
 
-class Lock {
-    constructor() {
-        this._locked = false;
-        this._waiting = [];
+class WorkerManager {
+    constructor(maxWorkers) {
+        this.maxWorkers = maxWorkers;
     }
 
-    async acquire() {
-        const unlock = () => {
-            let nextResolve;
-            if (this._waiting.length > 0) {
-                nextResolve = this._waiting.shift();
-            } else {
-                this._locked = false;
-            }
-            return nextResolve && nextResolve(unlock);
-        };
+    createWorkerPromise(workerData, index) {
+        return new Promise((resolve) => {
+            const worker = new Worker(__filename, { workerData });
+            
+            const timeout = setTimeout(() => {
+                console.warn(`Worker ${index} timed out`);
+                worker.terminate();
+                resolve({ status: 'timeout' });
+            }, 300000); // 5 minute timeout
+    
+            worker.on('message', (message) => {
+                clearTimeout(timeout);
+                if (message.type === 'result') {
+                    console.log(`Worker ${index} completed. Result:`, JSON.stringify(message.result, null, 2));
+                    resolve({ status: 'fulfilled', value: message.result });
+                }
+            });
+    
+            worker.on('error', (error) => {
+                clearTimeout(timeout);
+                console.error(`Worker ${index} error:`, error);
+                resolve({ status: 'error', error: error.message });
+            });
+    
+            worker.on('exit', (code) => {
+                clearTimeout(timeout);
+                if (code !== 0) {
+                    console.warn(`Worker ${index} stopped with exit code ${code}`);
+                    resolve({ status: 'exited', code });
+                }
+            });
+        });
+    }
 
-        if (this._locked) {
-            return new Promise(resolve => this._waiting.push(resolve));
-        } else {
-            this._locked = true;
-            return Promise.resolve(unlock);
-        }
+    async runAll(workersData) {
+        console.log(`Running ${workersData.length} chunks on ${this.maxWorkers} workers`);
+    
+        const workerPromises = workersData.map((data, index) =>
+            this.createWorkerPromise(data, index)
+        );
+    
+        const results = await Promise.all(workerPromises);
+        console.log("Raw results from workers:", JSON.stringify(results, null, 2));
+    
+        const fulfilledResults = results
+            .filter(result => result.status === 'fulfilled' && result.value)
+            .map(result => result.value);
+    
+        console.log("Fulfilled results:", JSON.stringify(fulfilledResults, null, 2));
+    
+        return fulfilledResults;
     }
 }
 
+
 let addedLinks = new Set();
-const lock = new Lock();
 terms = terms.map((term) => term.toLowerCase());
 
 const parseTime = (timeStr) => {
@@ -101,7 +133,7 @@ async function extractArticleText(url) {
             executablePath: BROWSER_PATH
         });
         const page = await browser.newPage();
-        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: FIVE_MINUTES });
+        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
 
         let articleText = await page.evaluate(() => {
             const mainSelectors = [
@@ -142,7 +174,7 @@ async function extractArticleText(url) {
  * @return {string} The cleaned text.     */
 const cleanText = (text) => {
     text = sanitizeHtml(text, { allowedTags: [], allowedAttributes: [] });
-    
+
     while (text.includes("\n\n")) {
         text = text.replace(/\n\n/g, '\n');
     }
@@ -356,7 +388,7 @@ const isRecent = (dateText) => {
     if (relativeMatchES || relativeMatchEN) {
         const [_, amount, unit] = relativeMatchES || relativeMatchEN;
         date = new Date(now);
-        switch(unit.toLowerCase()) {
+        switch (unit.toLowerCase()) {
             case 'minuto':
             case 'minutos':
             case 'minute':
@@ -402,7 +434,7 @@ const isRecent = (dateText) => {
             "d 'de' MMMM 'de' yyyy",
             "d 'de' MMM'. de' yyyy"
         ];
-        
+
         for (const format of formats) {
             // Try parsing with Spanish locale
             date = parse(dateText, format, new Date(), { locale: es });
@@ -439,9 +471,10 @@ const isRecent = (dateText) => {
     return differenceInHours(now, date) < 24;
 };
 
-async function fetchWithRetry(url, retries = MAX_RETRIES_PER_FETCH, initialDelay = ONE_MINUTE/60, timeout = FIVE_MINUTES) {
+async function fetchWithRetry(url, retries = 3, initialDelay = 1000, timeout = 30000) {
     for (let i = 0; i < retries; i++) {
         try {
+            // Wait for rate limiter
             await limiter.removeTokens(1);
 
             const response = await axios.get(url, {
@@ -453,7 +486,10 @@ async function fetchWithRetry(url, retries = MAX_RETRIES_PER_FETCH, initialDelay
             return response.data;
         } catch (error) {
             if (i === retries - 1) throw error;
-            
+
+            console.log(`Attempt ${i + 1} failed for ${url}. Retrying...`);
+
+            // Calculate delay with exponential backoff
             const delay = initialDelay * Math.pow(2, i);
             await new Promise(resolve => setTimeout(resolve, delay));
         }
@@ -509,141 +545,68 @@ const closeToEmailingTime = () => {
 
 const limiter = new RateLimiter({ tokensPerInterval: 1, interval: "second" });
 
-class WorkerManager {
-    constructor(maxWorkers) {
-        this.maxWorkers = maxWorkers;
-    }
-
-    createWorkerPromise(workerData, index) {
-        return new Promise((resolve) => {
-            const worker = new Worker(__filename, { workerData });
-            
-            const timeout = setTimeout(() => {
-                console.warn(`Worker ${index} timed out`);
-                worker.terminate();
-                resolve({ status: 'timeout' });
-            }, INITIAL_DELAY0); // 5 minute timeout
-
-            worker.on('message', (message) => {
-                clearTimeout(timeout);
-                if (message.type === 'result') {
-                    console.log(`Worker ${index} completed`);
-                    resolve({ status: 'fulfilled', value: message.result });
-                }
-            });
-
-            worker.on('error', (error) => {
-                clearTimeout(timeout);
-                console.error(`Worker ${index} error:`, error);
-                resolve({ status: 'rejected', reason: error });
-            });
-
-            worker.on('exit', (code) => {
-                clearTimeout(timeout);
-                if (code !== 0) {
-                    console.warn(`Worker ${index} stopped with exit code ${code}`);
-                    resolve({ status: 'rejected', reason: `Exit code ${code}` });
-                }
-            });
-        });
-    }
-
-    async runAll(workersData) {
-        console.log(`Running ${workersData.length} chunks on ${this.maxWorkers} workers`);
-        
-        const workerPromises = workersData.map((data, index) => 
-            this.createWorkerPromise(data, index)
-        );
-
-        const results = await Promise.allSettled(workerPromises);
-        return results.map(result => result.value).filter(result => result.status === 'fulfilled').map(result => result.value);
-    }
-}
-
-async function crawlWebsite(url, terms, workerAddedLinks, newlyAddedLinks) {
+async function crawlWebsite(url, terms, workerAddedLinks) {
     let results = {};
     terms.forEach(term => results[term] = []);
 
     console.log(`Crawling ${url}...`);
 
-    const termPromises = terms.map(async (term) => {
+    for (const term of terms) {
         try {
             const searchUrl = `https://www.bing.com/search?q=${encodeURIComponent(term)}+site:${encodeURIComponent(url)}&filters=ex1%3a"ez5"`;
-            const html = await fetchWithRetry(searchUrl);
+            const html = await fetchWithRetry(searchUrl, 3, 1000, 30000);
             const $ = cheerio.load(html);
 
             const articleElements = $("li.b_algo");
 
-            const articlePromises = articleElements.map(async (_, article) => {
+            for (const article of articleElements) {
                 const titleElement = $(article).find("h2");
                 const linkElement = titleElement.find("a");
                 const dateElement = $(article).find("span.news_dt");
 
                 if (titleElement.length && linkElement.length && dateElement.length) {
-                    const title = titleElement.text().trim();
+                    const title = cleanText(titleElement.text());
                     const link = normalizeUrl(linkElement.attr("href"));
-                    const dateText = dateElement.text().trim();
+                    const dateText = cleanText(dateElement.text());
 
-                    if (!isWebsiteValid(url, link)) return null;
+                    if (!isWebsiteValid(url, link)) continue;
 
-                    const unlock = await lock.acquire();
                     try {
-                        if (!workerAddedLinks.has(link) && !newlyAddedLinks.has(link)) {
-                            if (isRecent(dateText)) {
-                                let articleContent;
-                                try {
-                                    articleContent = await extractArticleText(link);
-                                } catch (error) {
-                                    console.error(`Error extracting text from ${link}: ${error.message}`);
-                                    return null;
-                                }
+                        if (!workerAddedLinks.has(link) && isRecent(dateText)) {
+                            let articleContent;
+                            try {
+                                articleContent = await extractArticleText(link);
+                            } catch (error) {
+                                throw new Error(`Error extracting text from ${link}: ${error.message}`);
+                            }
 
-                                const { score, mostCommonTerm } = relevanceScoreAndMaxCommonFoundTerm(title + ' ' + articleContent);
+                            const { score, mostCommonTerm } = relevanceScoreAndMaxCommonFoundTerm(title + ' ' + articleContent);
 
-                                if (score > 0) {
-                                    workerAddedLinks.add(link);
-                                    newlyAddedLinks.add(link);
+                            if (score > 0) {
+                                workerAddedLinks.add(link);
 
-                                    console.log(`Added article! - ${link}`);
+                                const newArticle = {
+                                    title: title,
+                                    link: link,
+                                    summary: STRING_PLACEHOLDER,
+                                    score: score,
+                                    term: mostCommonTerm,
+                                    fullText: articleContent,
+                                    date: dateText
+                                };
 
-                                    return {
-                                        title: title,
-                                        link: link,
-                                        summary: STRING_PLACEHOLDER,
-                                        score: score,
-                                        term: mostCommonTerm,
-                                        fullText: articleContent,
-                                        date: dateText
-                                    };
-                                }
+                                results[mostCommonTerm].push(newArticle);
+                                console.log(`Added article for term "${mostCommonTerm}": ${link}`);
                             }
                         }
-                    } finally {
-                        unlock();
+                    } catch(error) {
+                        throw new Error(cleanText(error.message));
                     }
                 }
-                return null;
-            }).get();
-
-            const articleResults = await Promise.allSettled(articlePromises);
-            const validArticles = articleResults
-                .filter(result => result.status === 'fulfilled' && result.value !== null)
-                .map(result => result.value);
-
-            results[term].push(...validArticles);
-
-        } catch (error) {
-            console.error(`Error crawling ${url} for term ${term}: ${error.message}`);
-            if (error.response) {
-                console.error(`Status: ${error.response.status}, Data: ${JSON.stringify(error.response.data)}`);
             }
+        } catch (error) {
+            console.error(`Error crawling ${url} for term "${term}": ${error.message}`);
         }
-    });
-
-    await Promise.allSettled(termPromises);
-
-    for (const [term, articles] of Object.entries(results)) {
-        console.log(`Found ${articles.length} articles for term "${term}"`);
     }
 
     return results;
@@ -659,7 +622,7 @@ const chunkArray = (array, chunkSize) => {
     if (!Array.isArray(array) || !array.length) {
         return [];
     }
-    let chunks = [];
+    const chunks = [];
     for (let i = 0; i < array.length; i += chunkSize) {
         chunks.push(array.slice(i, i + chunkSize));
     }
@@ -693,7 +656,7 @@ function isWebsiteValid(baseUrl, fullLink) {
  * @return {Promise<Object>} An object containing arrays of articles for each term. */
 const crawlWebsites = async () => {
     let allResults = {};
-    for (const term of terms) allResults[term] = [];
+    terms.forEach(term => allResults[term] = []);
 
     const maxConcurrentWorkers = os.cpus().length;
     console.log(`Using ${maxConcurrentWorkers} concurrent workers`);
@@ -704,27 +667,22 @@ const crawlWebsites = async () => {
     }
 
     const websiteChunks = chunkArray(websites, Math.ceil(websites.length / maxConcurrentWorkers));
-    console.log(`Created ${websiteChunks.length} website chunks`);
-    websiteChunks.forEach((chunk, index) => {
-        console.log(`Chunk ${index + 1}: ${chunk.join(', ')}`);
-    });
-
     const manager = new WorkerManager(maxConcurrentWorkers);
     
     console.log("Crawling websites...");
+
     const results = await manager.runAll(websiteChunks.map(chunk => ({ websites: chunk, terms, addedLinks: Array.from(addedLinks) })));
-    console.log("All workers have completed. Processing results...");
 
-    console.log(`Received results from ${results.length} successful workers`);
+    console.log("Results from all workers:", JSON.stringify(results, null, 2));
 
-    for (const result of results) {
-        for (const [term, articles] of Object.entries(result.articles)) {
+    for (const workerResult of results) {
+        for (const [term, articles] of Object.entries(workerResult)) {
+            if (!allResults[term]) allResults[term] = [];
             allResults[term].push(...articles);
         }
-        result.addedLinks.forEach(link => addedLinks.add(link));
     }
 
-    console.log("Finished processing all results");
+    console.log("Aggregated results from all workers:", JSON.stringify(allResults, null, 2));
     return allResults;
 };
 
@@ -794,7 +752,7 @@ async function removeIrrelevantArticles(results) {
             }
 
             let title = article.title;
-            let textToAnalyze = title.concat(' ',article.fullText);
+            let textToAnalyze = title.concat(' ', article.fullText);
 
             let mainTopics = getMainTopics(textToAnalyze, LANGUAGE, SENSITIVITY);
             if (!mainTopics.some(topic => terms.includes(topic.toLowerCase())) && article.score === 1) {
@@ -835,7 +793,7 @@ const saveResults = async (results) => {
                 ({ url: link, response: summary } = await summarizeText(
                     topArticles[i].link,
                     topArticles[i].fullText,
-                    topArticles[i].term,
+                    numTopArticles,
                     topArticles[i].title));
                 topArticles[i].summary = summary;
                 topArticles[i].link = link !== EMPTY_STRING ? link : topArticles[i].link;
@@ -847,9 +805,11 @@ const saveResults = async (results) => {
     const resultsWithTop = { results, topArticles, mostCommonTerm };
 
     fs.writeFileSync(resultsPath, JSON.stringify(resultsWithTop, null, 2));
+    console.log(`Results saved to ${resultsPath}. File contents:`, fs.readFileSync(resultsPath, 'utf8'));
+
     if (thisIsTheTime && !(FALSE_ALARM)) {
         fs.writeFileSync(flagPath, CRAWL_COMPLETE_TEXT);
-        console.log(CRAWL_COMPLETE_TEXT)
+        console.log(CRAWL_COMPLETE_TEXT);
     }
 
     return thisIsTheTime;
@@ -865,9 +825,15 @@ const loadPreviousResults = () => {
     try {
         if (fs.existsSync(resultsPath)) {
             const fileContent = fs.readFileSync(resultsPath, 'utf8');
+            console.log(`Previous results loaded from ${resultsPath}. Contents:`, fileContent);
             const previousResults = JSON.parse(fileContent);
 
             if (!previousResults.results) {
+                const invalidName = `INVALID_${CRAWLED_RESULTS_JSON}`;
+                const invalidPath = path.join(__dirname, invalidName);
+                fs.writeFileSync(invalidPath, fileContent);
+                fs.unlinkSync(resultsPath);
+                console.log(`Invalid results file saved to ${invalidPath}. Original file deleted.`);
                 throw new Error('Invalid results structure');
             }
 
@@ -880,7 +846,8 @@ const loadPreviousResults = () => {
             throw new Error('Results file does not exist');
         }
     } catch (err) {
-        console.error("No previous results found. Loading new template...");
+        console.error("No previous results found or error loading results:", err.message);
+        console.log("Loading new template...");
         let previousResults = {};
         terms.forEach(term => { previousResults[term] = []; });
         return previousResults;
@@ -1001,7 +968,7 @@ const sendEmail = async () => {
             ({ url: link, response: summary } = await summarizeText(
                 topArticles[i].link,
                 topArticles[i].fullText,
-                topArticles[i].term,
+                topArticles.length,
                 topArticles[i].title
             ));
             topArticles[i].summary = summary;
@@ -1011,7 +978,7 @@ const sendEmail = async () => {
 
     while (emailTime.getTime() > Date.now()) {
         console.log("Waiting...");
-        await new Promise((r) => setTimeout(r, ONE_MINUTE * 1.5));
+        await new Promise((r) => setTimeout(r, 90000));
     }
 
     let topArticleLinks = [];
@@ -1078,34 +1045,28 @@ const sendEmail = async () => {
 };
 
 
-/**
- * Asynchronous main function that handles interrupt signals, saves results, crawls websites, and sends emails.
- *
- * @return {Promise<void>} Promise that resolves when all operations are completed. */
 const main = async () => {
-    //Ctrl+C triggers saving results -> Helps the testing by the developer
-    process.on('SIGINT', async () => {
-        console.log(`Caught interrupt signal (Ctrl+C)\nSetting emailEndTime in ${(MINUTES_TO_CLOSE/ONE_MINUTE) - 1} minutes from now`);
-        const now = new Date();
-        emailEndTime = new Date(now.getTime() + MINUTES_TO_CLOSE - ONE_MINUTE);
-        FALSE_ALARM = true;
-        await saveResults(resultados);
-    });
-
     let resultados;
-    let keepGoing = !(closeToEmailingTime());
+    let keepGoing = true;
 
     while (keepGoing && !fs.existsSync(path.join(__dirname, CRAWL_COMPLETE_FLAG))) {
-        keepGoing = closeToEmailingTime();
+        if (closeToEmailingTime()) {
+            keepGoing = false;
+        }
 
         resultados = loadPreviousResults();
-        let results = await crawlWebsites();
+        console.log("Previous results:", JSON.stringify(resultados, null, 2));
 
-        console.log(Object.entries(results));
+        const newResults = await crawlWebsites();
+        console.log("New crawled results:", JSON.stringify(newResults, null, 2));
 
-        for (let [term, articles] of Object.entries(results)) {
-            resultados[term].push(...articles);
+        for (const term of terms) {
+            if (!resultados[term]) resultados[term] = [];
+            if (newResults[term]) resultados[term].push(...newResults[term]);
         }
+
+        console.log("Merged results:", JSON.stringify(resultados, null, 2));
+        console.log("Total articles after merging:", Object.values(resultados).flat().length);
 
         await saveResults(resultados);
     }
@@ -1117,75 +1078,80 @@ const main = async () => {
     await sendEmail();
 };
 
+//Ctrl+C triggers saving results -> Helps the testing by the developer
+process.on('SIGINT', async () => {
+    console.log(`Caught interrupt signal (Ctrl+C)\nSetting emailEndTime in ${(MINUTES_TO_CLOSE / 60000) - 1} minutes from now`);
+    const now = new Date();
+    emailEndTime = new Date(now.getTime() + MINUTES_TO_CLOSE * 0.2);
+    FALSE_ALARM = true;
+});
+
+process.on('exit', (code) => {
+    console.log(`About to exit with code: ${code}`);
+    if (resultados) {
+        console.log('Saving results before exit...');
+        fs.writeFileSync(path.join(__dirname, CRAWLED_RESULTS_JSON), JSON.stringify({ results: resultados }, null, 2));
+    }
+});
+
 if (isMainThread) {
     // Main thread code
     (async () => {
         try {
             await assignBrowserPath();
             console.log(`Webcrawler scheduled to run indefinitely. Emails will be sent daily at ${config.time.email}`);
-    
+
             while (true) {
                 console.log(`Running the web crawler at ${new Date().toISOString()}...`);
-                
+
                 const crawlPromise = main()
                     .then(() => console.log('Scheduled webcrawler run finished successfully\n\n\n'))
                     .catch(error => console.error('Error in scheduled webcrawler run:', error, '\n\n\n'));
-    
-                const timeoutPromise = new Promise((_, reject) => 
-                    setTimeout(() => reject(new Error('Crawl timed out')), websites.length * ONE_MINUTE * 2)
+
+                const timeoutPromise = new Promise((_, reject) =>
+                    setTimeout(() => reject(new Error('Crawl timed out')), websites.length * 120000) // 2 MINUTES PER WEBSITE
                 );
-    
+
                 await Promise.race([crawlPromise, timeoutPromise]);
-                
-                await new Promise(resolve => setTimeout(resolve, ONE_MINUTE)); // 1 minute delay between runs
+
+                // Add a delay between runs if needed
+                await new Promise(resolve => setTimeout(resolve, 60000)); // 1 minute delay
             }
         } catch (error) {
             console.error("Critical error in main execution:", error);
         }
     })();
 } else {
-    // Worker thread code
-    (async () => {
-        try {
-            const { websites, terms, addedLinks: initialAddedLinks } = workerData;
-            console.log(`Worker started with ${websites.length} websites`);
-            let workerAddedLinks = new Set(initialAddedLinks);
+// Worker thread code
+(async () => {
+    try {
+        const { websites, terms, addedLinks: initialAddedLinks } = workerData;
+        console.log(`Worker started with ${websites.length} websites`);
+        let workerAddedLinks = new Set(initialAddedLinks);
 
-            const results = {};
-            for (const term of terms) results[term] = new Set();
+        let results = {};
+        for (const term of terms) results[term] = [];
 
-            const newlyAddedLinks = new Set();
-
-            const websitePromises = websites.map(async (website) => {
-                try {
-                    console.log(`Worker processing website: ${website}`);
-                    const websiteResults = await crawlWebsite(website, terms, workerAddedLinks, newlyAddedLinks);
-                    for (const [term, articles] of Object.entries(websiteResults)) {
-                        articles.forEach(article => results[term].add(article));
-                    }
-                    return { status: 'fulfilled' };
-                } catch (error) {
-                    console.error(`Error crawling ${website}:`, error);
-                    return { status: 'rejected', reason: error.message };
-                }
-            });
-
-            await Promise.allSettled(websitePromises);
-
-            console.log(`Worker finished processing ${websites.length} websites`);
-
-            parentPort.postMessage({
-                type: 'result',
-                result: {
-                    articles: Object.fromEntries(Object.entries(results).map(([term, articles]) => [term, Array.from(articles)])),
-                    addedLinks: Array.from(newlyAddedLinks)
-                }
-            });
-        } catch (error) {
-            console.error('Worker error:', error);
-            parentPort.postMessage({ type: 'error', error: error.message });
-        } finally {
-            parentPort.close();
+        for (const website of websites) {
+            const websiteResults = await crawlWebsite(website, terms, workerAddedLinks);
+            for (const [term, articles] of Object.entries(websiteResults)) {
+                results[term].push(...articles);
+            }
         }
-    })();
+
+        const totalArticles = Object.values(results).reduce((sum, articles) => sum + articles.length, 0);
+        console.log(`Worker finished. Total articles found: ${totalArticles}`);
+        console.log(`Worker results:`, JSON.stringify(results, null, 2));
+
+        parentPort.postMessage({
+            type: 'result',
+            result: results
+        });
+    } catch (error) {
+        console.error('Worker error:', error);
+        parentPort.postMessage({ type: 'error', error: error.message });
+    } finally {
+        parentPort.close();
+    }
+})();
 }
