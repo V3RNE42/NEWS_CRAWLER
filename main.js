@@ -1111,7 +1111,7 @@ const main = async () => {
         emailTime = parseTime(config.time.email);
         console.log('Current emailEndTime:', emailTime);
 
-        const chunkedWebsitesCount = Math.floor(websites.length/os.length());
+        const chunkedWebsitesCount = Math.floor(websites.length/os.cpus().length);
         const crawlCycleEndTime = new Date(now.getTime() + chunkedWebsitesCount * terms.length * 150);
         const cycleEndTime = emailTime < crawlCycleEndTime ? emailTime : crawlCycleEndTime;
 
