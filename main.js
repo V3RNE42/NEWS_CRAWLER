@@ -43,7 +43,6 @@ terms = terms.map((term) => term.toLowerCase());
 
 
 const parseTime = (timeStr) => {
-    // Regular expression to match HH:MM format
     const timeRegex = /^([0-1]?[0-9]|2[0-3]):([0-5][0-9])$/;
 
     if (!timeRegex.test(timeStr)) {
@@ -61,10 +60,8 @@ const parseTime = (timeStr) => {
     const now = new Date();
     const result = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hour, minute);
 
-    // Subtract MINUTES_TO_CLOSE
     result.setMinutes(result.getMinutes() - Math.floor(MINUTES_TO_CLOSE / 60000));
 
-    // If the resulting time is earlier than now, set it to tomorrow
     if (result <= now) {
         result.setDate(result.getDate() + 1);
     }
@@ -253,7 +250,6 @@ async function getNonChunkedOpenAIResponse(text, topic, maxTokens) {
     }
 }
 
-
 /**
  * Retrieves an OpenAI response for the given text and title.
  *
@@ -348,7 +344,6 @@ const isRecent = (dateText) => {
     const now = new Date();
     let date;
 
-    // Handle relative time in both Spanish and English
     const relativeMatchES = dateText.match(/hace (\d+) (minutos?|horas?|días?|semanas?|meses?)/i);
     const relativeMatchEN = dateText.match(/(\d+) (minute|hour|day|week|month)s? ago/i);
 
@@ -770,9 +765,9 @@ const removeRedundantArticles = async (results) => {
     for (const term of terms) {
         const articles = results[term];
         const uniqueArticles = [];
-        const toRemove = new Set(); // Keep track of indices to remove
+        const toRemove = new Set();
         for (let i = 0; i < articles.length; i++) {
-            if (toRemove.has(i)) continue; // Skip if already marked for removal
+            if (toRemove.has(i)) continue;
             let unique = true;
             for (let j = 0; j < articles.length; j++) {
                 if (i !== j && !toRemove.has(j)) {
@@ -789,7 +784,7 @@ const removeRedundantArticles = async (results) => {
                         } else {
                             toRemove.add(j);
                         }
-                        break; // Stop inner loop as we found a duplicate
+                        break;
                     }
                 }
             }
@@ -810,7 +805,6 @@ const removeRedundantArticles = async (results) => {
 async function removeIrrelevantArticles(results) {
     let reorganizedResults = {};
 
-    // Initialize reorganizedResults with all terms from the original results
     for (const term of Object.keys(results)) {
         reorganizedResults[term] = [];
     }
@@ -822,7 +816,7 @@ async function removeIrrelevantArticles(results) {
                     article.fullText = await extractArticleText(article.link);
                 } catch (error) {
                     console.error(`Error extracting text from ${article.link}: ${error.message}`);
-                    continue; // Skip this article if text extraction fails
+                    continue;
                 }
             }
 
@@ -832,7 +826,7 @@ async function removeIrrelevantArticles(results) {
             let mainTopics = getMainTopics(textToAnalyze, LANGUAGE, SENSITIVITY);
             if (!mainTopics.some(topic => terms.includes(topic.toLowerCase())) && article.score === 1) {
                 console.log(`Irrelevant article discarded: ${article.link}`);
-                continue; // Skip this article if it's not relevant
+                continue;
             }
 
             reorganizedResults[term].push(article);
@@ -1117,7 +1111,8 @@ const main = async () => {
         emailTime = parseTime(config.time.email);
         console.log('Current emailEndTime:', emailTime);
 
-        const crawlCycleEndTime = new Date(now.getTime() + 15 * 60 * 1000); // 1/4 hour from now
+        const chunkedWebsitesCount = Math.floor(websites.length/os.length());
+        const crawlCycleEndTime = new Date(now.getTime() + chunkedWebsitesCount * terms.length * 150);
         const cycleEndTime = emailTime < crawlCycleEndTime ? emailTime : crawlCycleEndTime;
 
         console.log(`Cycle end time set to: ${cycleEndTime}`);
