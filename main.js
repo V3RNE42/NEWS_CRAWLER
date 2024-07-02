@@ -1034,7 +1034,7 @@ const sendEmail = async (emailTime) => {
     }
 
 
-    while (now < emailTime) {
+    while (now < new Date(emailTime.getTime() + MINUTES_TO_CLOSE)) {
         console.log("Waiting...");
         await new Promise((r) => setTimeout(r, 90000));
         now.setTime(Date.now());
