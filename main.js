@@ -493,6 +493,11 @@ const normalizeUrl = (url) => {
     return normalizedUrl;
 };
 
+/**
+ * Checks if the current time is close to the provided email end time.
+ *
+ * @param {Date} emailEndTime - The end time for the email
+ * @return {boolean} Returns true if the current time is close to the email end time, false otherwise   */
 function closeToEmailingTime(emailEndTime) {
     // Check if emailEndTime is a valid Date object
     if (!(emailEndTime instanceof Date) || isNaN(emailEndTime.getTime())) {
@@ -1137,12 +1142,11 @@ const main = async () => {
         }
 
         console.log("Cycle completed. Checking if it's time to send email...");
-        if (closeToEmailingTime()) {
+        if (closeToEmailingTime(emailTime)) {
             console.log("It's time to send email. Breaking the loop.");
             break;
         }
 
-        // Add a short delay before starting the next cycle
         console.log("Waiting before starting next cycle...");
         await new Promise(resolve => setTimeout(resolve, 60000)); // 1 minute delay
     }
