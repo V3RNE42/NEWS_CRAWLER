@@ -154,15 +154,16 @@ async function extractArticleText(url) {
 const cleanText = (text) => {
     text = sanitizeHtml(text, { allowedTags: [], allowedAttributes: [] });
 
-    while (text.includes("\n\n")) {
-        text = text.replace(/\n\n/g, '\n');
-    }
-    while (text.includes('  ')) {
-        text = text.replace(/'  '/g, ' ');
+    while (text.includes("\n")) {
+        text = text.replace(/\n/g, ' ');
     }
 
-    while (text.includes("\t\t")) {
-        text = text.replace(/\t\t/g, '\t');
+    while (text.includes("\t")) {
+        text = text.replace(/\t/g, ' ');
+    }
+
+    while (text.includes('  ')) {
+        text = text.replace(/'  '/g, ' ');
     }
 
     return text.replace(/<[^>]*>/g, ' ').trim();
