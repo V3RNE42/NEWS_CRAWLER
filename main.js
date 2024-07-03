@@ -42,6 +42,14 @@ let workers = [];
 terms = terms.map((term) => term.toLowerCase());
 
 
+/**
+ * Parses a time string in the format HH:MM (24-hour format) and returns a Date object
+ * representing the time. If the time string is invalid or the hour or minute is not a number,
+ * an Error is thrown.
+ *
+ * @param {string} timeStr - The time string to be parsed.
+ * @return {Date} A Date object representing the parsed time.
+ * @throws {Error} If the time string is invalid or the hour or minute is not a number. */
 const parseTime = (timeStr) => {
     const timeRegex = /^([0-1]?[0-9]|2[0-3]):([0-5][0-9])$/;
 
@@ -80,7 +88,14 @@ async function assignBrowserPath() {
         : config.browser.path;
 }
 
-const todayDate = () => new Date().toISOString().split("T")[0];
+function todayDate() {
+    const date = new Date();
+    const day = date.getDate().toString().padStart(2, '0');
+    const spanishMonths = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+    const month = spanishMonths[date.getMonth()];
+    const year = date.getFullYear();
+    return `${day}/${month}/${year}`;
+} 
 
 const sleep = async (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -153,6 +168,14 @@ const cleanText = (text) => {
     return text.replace(/<[^>]*>/g, ' ').trim();
 }
 
+
+/**
+ * Generates a prompt for OpenAI to generate a summary of a specific part of a news article.
+ *
+ * @param {string} text - The content of the news article.
+ * @param {string} topic - The topic of the news article.
+ * @param {number} maxTokens - The maximum number of tokens for the OpenAI response.
+ * @return {Promise<string>} The generated prompt for OpenAI.   */
 async function getChunkedOpenAIResponse(text, topic, maxTokens) {
     /** Generates a prompt for OpenAI to generate a summary of a specific part of a news article.
      * @param {string} news_content - The content of the news article.
@@ -226,6 +249,14 @@ function splitTextIntoChunks(text) {
     return chunks;
 }
 
+
+/**
+ * Asynchronously generates a non-chunked OpenAI response for a given text, topic, and maximum number of tokens.
+ *
+ * @param {string} text - The content of the news article.
+ * @param {string} topic - The topic of the news article.
+ * @param {number} maxTokens - The maximum number of tokens for the OpenAI response.
+ * @return {Promise<string>} The generated OpenAI response. */
 async function getNonChunkedOpenAIResponse(text, topic, maxTokens) {
     text = `Haz un resumen de la siguiente noticia:\n\n\n\n${text}\n\n\n\nIgnora todo texto que no tenga que ver con el tema de la noticia: ${topic}`;
     try {
@@ -433,6 +464,15 @@ const isRecent = (dateText) => {
     return differenceInHours(now, date) < 24;
 };
 
+
+/**
+ * Fetches a URL with retries and exponential backoff.
+ *
+ * @param {string} url - The URL to fetch.
+ * @param {number} [retries=0] - The number of retries attempted so far.
+ * @param {number} [initialDelay=INITIAL_DELAY] - The initial delay in milliseconds.
+ * @throws {Error} If the maximum number of retries is exceeded.
+ * @return {Promise<string>} The response data from the fetched URL.    */
 async function fetchWithRetry(url, retries = 0, initialDelay = INITIAL_DEALY) {
     try {
         const randomDelay = Math.floor(Math.random() * initialDelay);
@@ -480,6 +520,12 @@ const relevanceScoreAndMaxCommonFoundTerm = (text) => {
     return { score, mostCommonTerm };
 };
 
+
+/**
+ * Normalizes a URL by trimming whitespace and converting to lowercase.
+ *
+ * @param {string} url - The URL to be normalized.
+ * @return {string} The normalized URL.*/
 const normalizeUrl = (url) => {
     let normalizedUrl = url.trim().toLowerCase();
     if (normalizedUrl.endsWith('/')) {
@@ -567,6 +613,24 @@ function createWorker(workerData) {
     });
 }
 
+
+/**
+ * Crawls a website for articles related to the given terms and returns the results.
+ *
+ * @param {string} url - The URL of the website to crawl.
+ * @param {Array<string>} terms - The terms to search for on the website.
+ * @param {Set<string>} workerAddedLinks - A set of links that have already been added.
+ * @return {Promise<Object<string, Array<Object>>>} - A promise that resolves to an object containing the results of the crawl.
+ *                                                    The object has keys representing the terms searched for, and values representing
+ *                                                    an array of objects containing information about the articles found.
+ *                                                    Each article object has the following properties:
+ *                                                    - title: The title of the article.
+ *                                                    - link: The link to the article.
+ *                                                    - summary: A placeholder string.
+ *                                                    - score: The relevance score of the article.
+ *                                                    - term: The term the article was found for.
+ *                                                    - fullText: The full text of the article.
+ *                                                    - date: The date the article was published.                                        */
 async function crawlWebsite(url, terms, workerAddedLinks) {
     let results = {};
     terms.forEach(term => results[term] = new Set());
@@ -600,34 +664,27 @@ async function crawlWebsite(url, terms, workerAddedLinks) {
                     if (!isWebsiteValid(url, link)) continue;
 
                     try {
-                        // Double-check if the link has been added
-                        if (!workerAddedLinks.has(link)) {
-                            if (isRecent(dateText)) {
-                                let articleContent;
-                                try {
-                                    articleContent = await extractArticleText(link);
-                                } catch (error) {
-                                    console.error(`Error extracting text from ${link}: ${error.message}`);
-                                    continue;
-                                }
-
-                                const { score, mostCommonTerm } = relevanceScoreAndMaxCommonFoundTerm(title + ' ' + articleContent);
-
-                                if (score > 0) {
-                                    workerAddedLinks.add(link);
-
-                                    console.log(`Added article! - ${link}`);
-
-                                    results[mostCommonTerm].add({
-                                        title: title,
-                                        link: link,
-                                        summary: STRING_PLACEHOLDER,
-                                        score: score,
-                                        term: mostCommonTerm,
-                                        fullText: articleContent,
-                                        date: dateText
-                                    });
-                                }
+                        if (!workerAddedLinks.has(link) && isRecent(dateText)) {
+                            let articleContent;
+                            try {
+                                articleContent = await extractArticleText(link);
+                            } catch (error) {
+                                console.error(`Error extracting text from ${link}: ${error.message}`);
+                                continue;
+                            }
+                            const { score, mostCommonTerm } = relevanceScoreAndMaxCommonFoundTerm(title + ' ' + articleContent);
+                            if (score > 0) {
+                                workerAddedLinks.add(link);
+                                console.log(`Added article! - ${link}`);
+                                results[mostCommonTerm].add({
+                                    title: title,
+                                    link: link,
+                                    summary: STRING_PLACEHOLDER,
+                                    score: score,
+                                    term: mostCommonTerm,
+                                    fullText: articleContent,
+                                    date: dateText
+                                });
                             }
                         }
                     } catch (error) {
@@ -666,6 +723,13 @@ const chunkArray = (array, numChunks) => {
     return chunks;
 };
 
+
+/**
+ * Checks if the given `fullLink` is a valid URL for the `baseUrl` website.
+ *
+ * @param {string} baseUrl - The base URL of the website.
+ * @param {string} fullLink - The full URL to be validated.
+ * @return {boolean} Returns `true` if the `fullLink` is a valid URL for the `baseUrl` website, `false` otherwise.  */
 function isWebsiteValid(baseUrl, fullLink) {
     try {
         const baseHostname = new URL(baseUrl).hostname;
@@ -762,6 +826,7 @@ const crawlWebsites = async (cycleEndTime) => {
  * @param {Object} results - An object containing articles grouped by terms.
  * @return {Promise<void>} A promise that resolves when the redundant articles have been removed.   */
 const removeRedundantArticles = async (results) => {
+    console.log('Removing redundant articles...');
     for (const term of terms) {
         const articles = results[term];
         const uniqueArticles = [];
@@ -797,6 +862,28 @@ const removeRedundantArticles = async (results) => {
     return results;
 }
 
+
+/**
+ * Determines if a given text is relevant based on the frequency of terms.
+ *
+ * @param {string} textToAnalyze - The text to analyze.
+ * @param {Array<string>} terms - The terms to check for in the text.
+ * @return {boolean} - Returns true if the total frequency of terms in the text is greater than or equal to 2, false otherwise. */
+function isTextRelevant(textToAnalyze, terms) {
+    const textLower = textToAnalyze.toLowerCase();
+    let totalFrequency = 0;
+
+    for (let term of terms) {
+        const regex = new RegExp(`\\b${term}\\b`, 'g');
+        const matches = textLower.match(regex);
+        const count = matches ? matches.length : 0;
+        totalFrequency += count;
+        if (totalFrequency >= 2) break;
+    }
+
+    return totalFrequency >= 2;
+}
+
 /**
  * Arranges the articles from the given results object based on their terms.
  *
@@ -824,7 +911,8 @@ async function removeIrrelevantArticles(results) {
             let textToAnalyze = title.concat(' ', article.fullText);
 
             let mainTopics = getMainTopics(textToAnalyze, LANGUAGE, SENSITIVITY);
-            if (!mainTopics.some(topic => terms.includes(topic.toLowerCase())) && article.score === 1) {
+            if ((!mainTopics.some(topic => terms.includes(topic.toLowerCase())) || !isTextRelevant(textToAnalyze, terms)) 
+                && article.score === 1) {
                 console.log(`Irrelevant article discarded: ${article.link}`);
                 continue;
             }
@@ -987,6 +1075,12 @@ const loadResults = () => {
     return null;
 };
 
+
+/**
+ * Sends an email with the latest news based on the results stored in the JSON file.
+ *
+ * @param {Date} emailTime - The time at which the email should be sent.
+ * @return {Promise<void>} - A promise that resolves when the email is sent successfully.   */
 const sendEmail = async (emailTime) => {
     console.log("Sending emails...");
 
@@ -1027,10 +1121,9 @@ const sendEmail = async (emailTime) => {
         }
     }
 
-
     while (now < new Date(emailTime.getTime() + MINUTES_TO_CLOSE)) {
         console.log("Waiting...");
-        await new Promise((r) => setTimeout(r, 90000));
+        await new Promise((r) => setTimeout(r, 30000));
         now.setTime(Date.now());
     }
 
@@ -1098,6 +1191,10 @@ const sendEmail = async (emailTime) => {
 };
 
 
+/**
+ * Asynchronous function that controls the main process of the web crawler.
+ *
+ * @return {Promise<void>} Promise that resolves when the main process is completed */
 const main = async () => {
     console.log("Starting main process...");
     let resultados;
@@ -1154,6 +1251,9 @@ const main = async () => {
     console.log("Preparing to send email...");
     await sendEmail(emailTime);
     console.log("Email sent. Main process completed.");
+
+    console.log("Waiting before starting next cycle...");
+    await new Promise(resolve => setTimeout(resolve, 30000)); // 30 seconds delay
 };
 
 if (isMainThread) {
