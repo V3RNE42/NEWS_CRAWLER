@@ -708,9 +708,9 @@ const crawlWebsites = async (cycleEndTime) => {
 
     const shuffledWebsites = shuffleArray([...websites]);
     const maxConcurrentWorkers = os.cpus().length;
-    const websiteChunks = chunkArray(shuffledWebsites, Math.ceil(shuffledWebsites.length / maxConcurrentWorkers));
+    const websiteChunks = chunkArray(shuffledWebsites, maxConcurrentWorkers);
 
-    console.log(`Creating ${websiteChunks.length} worker(s)...`);
+    console.log(`Creating ${maxConcurrentWorkers} worker(s)...`);
     const workerPromises = websiteChunks.map(websiteChunk =>
         createWorker({ websites: websiteChunk, terms, cycleEndTime })
     );
