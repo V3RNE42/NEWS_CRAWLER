@@ -1012,7 +1012,7 @@ const sendEmail = async (emailTime) => {
     let topArticleLinks = [];
     let emailBody = `
         <div style="text-align: center;">
-            <img src="https://raw.githubusercontent.com/V3RNE42/NEWS_CRAWLER/puppeteer_variant/assets/fresh_news.png" style="max-width: 25%; height: auto; display: block; margin-left: auto; margin-right: auto;" alt="Noticias_Frescas_LOGO">
+            <img src="https://github.com/V3RNE42/NEWS_CRAWLER/blob/main/assets/fresh_news.png?raw=true" style="max-width: 25%; height: auto; display: block; margin-left: auto; margin-right: auto;" alt="Noticias_Frescas_LOGO">
         </div>
         <br>
         Estas son las ${totalLinks} noticias frescas de ${todayDate()} :<br><br>`;
