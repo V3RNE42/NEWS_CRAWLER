@@ -1114,6 +1114,7 @@ const main = async () => {
     console.log("Waiting before starting next cycle...");
     await sleep(30000); // 30 seconds delay
 };
+
 if (isMainThread) {
     // Main thread code
     (async () => {
