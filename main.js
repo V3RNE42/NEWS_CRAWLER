@@ -74,6 +74,7 @@ const parseTime = (timeStr) => {
     }
     return result;
 };
+
 /** Assigns a valid browser path to the BROWSER_PATH variable based on the configuration
  * @return {Promise<void>} A promise that resolves when the browser path is assigned.   */
 async function assignBrowserPath() {
@@ -93,6 +94,7 @@ function todayDate() {
     const year = date.getFullYear();
     return `${day}/${month}/${year}`;
 } 
+
 /** Asynchronously delays the execution of code for a specified amount of time.
  * 
  *  @param {number} ms - The number of milliseconds to delay the execution.
@@ -100,11 +102,13 @@ function todayDate() {
 async function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
 } 
+
 /** Extracts the text content of an article from a given URL.
  *
  * @param {string} url - The URL of the article.
  * @return {Promise<string>} A Promise that resolves to the extracted text content. */
 async function extractArticleText(url) {
+    let articleText = "";
     try {
         const browser = await puppeteer.launch({
             headless: true,
@@ -113,7 +117,7 @@ async function extractArticleText(url) {
         });
         const page = await browser.newPage();
         await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-        let articleText = await page.evaluate(() => {
+        articleText = await page.evaluate(() => {
             const mainSelectors = [
                 'article', 'main', 'section', '.article-body',
                 '.content', '.main-content', '.entry-content',
@@ -136,10 +140,19 @@ async function extractArticleText(url) {
         }
         return cleanText(articleText);
     } catch (error) {
-        console.error(`Error extracting text from ${url}: ${error.message}`);
-        return EMPTY_STRING;
+        try {
+            const response = await fetch(url);
+            const html = await response.text();
+            const $ = cheerio.load(html);
+            articleText = $.html();
+            return cleanText(articleText);
+        } catch (error) {
+            console.error(`Error extracting text from ${url}: ${error.message}`);
+            return EMPTY_STRING;
+        }
     }
 }
+
 /** Cleans the given text by removing HTML tags and trimming whitespace
  * @param {string} text - The text to be cleaned.
  * @return {string} The cleaned text.     */
@@ -156,6 +169,7 @@ const cleanText = (text) => {
     }
     return text.replace(/<[^>]*>/g, ' ').trim();
 }
+
 /** Generates a prompt for OpenAI to generate a summary of a specific part of a news article.
  *
  * @param {string} text - The content of the news article.
@@ -200,6 +214,7 @@ async function getChunkedOpenAIResponse(text, topic, maxTokens) {
         return EMPTY_STRING;
     }
 }
+
 /** Counts the tokens of a string
  *  @param {String} text The text whose tokens are to be counted
  *  @returns {number} The amount of tokens      */
@@ -600,7 +615,9 @@ async function crawlWebsite(url, terms, workerAddedLinks) {
                             const { score, mostCommonTerm } = relevanceScoreAndMaxCommonFoundTerm(title + ' ' + articleContent);
                             if (score > 0) {
                                 workerAddedLinks.add(link);
-                                console.log(`Added article! - ${link}`);
+                                console.log("+++++++++++++++++++++++++++++++++++++++++++++++++++++++");
+                                console.log(`++++++ ADDED ARTICLE!!! - ${link}`);
+                                console.log("+++++++++++++++++++++++++++++++++++++++++++++++++++++++");
                                 results[mostCommonTerm].add({
                                     title: title,
                                     link: link,
