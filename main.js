@@ -802,10 +802,11 @@ function isTextRelevant(textToAnalyze, terms) {
     return totalFrequency >= 2;
 }
 
-/** Arranges the articles from the given results object based on their terms.
+
+/** Reorganizes the articles in the results object by term, removing irrelevant articles based on specified criteria.
  *
  * @param {Object} results - An object containing articles grouped by terms.
- * @return {Promise<Object>} - A promise that resolves to an object with articles reorganized by term */
+ * @return {Object} An object with articles reorganized by term after removing irrelevant articles. */
 async function removeIrrelevantArticles(results) {
     let reorganizedResults = {};
     for (const term of Object.keys(results)) {
