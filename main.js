@@ -1207,7 +1207,6 @@ const main = async () => {
 
         const now = new Date();
         emailTime = parseTime(config.time.email);
-        console.log('Current emailEndTime:', emailTime);
 
         const chunkedWebsitesCount = Math.floor(websites.length/os.cpus().length);
         const crawlCycleEndTime = new Date(now.getTime() + chunkedWebsitesCount * terms.length * 150);
@@ -1229,6 +1228,10 @@ const main = async () => {
         await saveResults(resultados, emailTime);
         console.log("Results saved.");
 
+        console.log('++++++++++++++++++++++++++++++++++++++');
+        console.log(`++++++++++++++ Current articles: ${resultados.length} ++`);
+        console.log('++++++++++++++++++++++++++++++++++++++');
+
         if (globalStopFlag) {
             console.log("Stopping main loop due to global stop flag");
             break;
@@ -1241,7 +1244,7 @@ const main = async () => {
         }
 
         console.log("Waiting before starting next cycle...");
-        await new Promise(resolve => setTimeout(resolve, 60000)); // 1 minute delay
+        await new Promise(resolve => setTimeout(resolve, 30000)); // 30 seconds delay
     }
 
     if (!fs.existsSync(path.join(__dirname, CRAWL_COMPLETE_FLAG)) && !(FALSE_ALARM)) {
