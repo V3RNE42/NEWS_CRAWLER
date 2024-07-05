@@ -97,7 +97,13 @@ function todayDate() {
     return `${day}/${month}/${year}`;
 } 
 
-const sleep = async (ms) => new Promise(resolve => setTimeout(resolve, ms));
+/** Asynchronously delays the execution of code for a specified amount of time.
+ * 
+ *  @param {number} ms - The number of milliseconds to delay the execution.
+ *  @return {Promise<void>} A Promise that resolves after the specified delay.   */
+async function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+} 
 
 /**
  * Extracts the text content of an article from a given URL.
@@ -492,7 +498,7 @@ async function fetchWithRetry(url, retries = 0, initialDelay = INITIAL_DEALY) {
         }
         const delay = initialDelay * Math.pow(2, retries);
         console.log(`Attempt ${retries + 1} failed for ${url}. Retrying in ${delay}ms...`);
-        await new Promise(resolve => setTimeout(resolve, delay));
+        await sleep(delay);
         return fetchWithRetry(url, retries + 1, delay);
     }
 }
@@ -1124,7 +1130,7 @@ const sendEmail = async (emailTime) => {
 
     while (now < new Date(emailTime.getTime() + MINUTES_TO_CLOSE)) {
         console.log("Waiting...");
-        await new Promise((r) => setTimeout(r, 30000));
+        await sleep(30000);
         now.setTime(Date.now());
     }
 
@@ -1244,7 +1250,7 @@ const main = async () => {
         }
 
         console.log("Waiting before starting next cycle...");
-        await new Promise(resolve => setTimeout(resolve, 30000)); // 30 seconds delay
+        await sleep(30000); // 30 seconds delay
     }
 
     if (!fs.existsSync(path.join(__dirname, CRAWL_COMPLETE_FLAG)) && !(FALSE_ALARM)) {
@@ -1257,7 +1263,7 @@ const main = async () => {
     console.log("Email sent. Main process completed.");
 
     console.log("Waiting before starting next cycle...");
-    await new Promise(resolve => setTimeout(resolve, 30000)); // 30 seconds delay
+    await sleep(30000); // 30 seconds delay
 };
 
 if (isMainThread) {
