@@ -485,16 +485,40 @@ const relevanceScoreAndMaxCommonFoundTerm = (text) => {
     return { score, mostCommonTerm };
 };
 
+
 /** Normalizes a URL by trimming whitespace and converting to lowercase.
  *
  * @param {string} url - The URL to be normalized.
- * @return {string} The normalized URL.*/
+ * @return {string|null} The normalized URL or null if the input is falsy.   */
 const normalizeUrl = (url) => {
-    let normalizedUrl = url.trim().toLowerCase();
-    if (normalizedUrl.endsWith('/')) {
-        normalizedUrl = normalizedUrl.slice(0, -1);
+    if (!url) return null;
+
+    try {
+        // Crear un objeto URL para manejar URLs relativas y absolutas
+        const parsedUrl = new URL(url, 'https://example.com');
+        
+        // Convertir a minúsculas
+        let normalizedUrl = parsedUrl.href.toLowerCase();
+        
+        // Eliminar el 'www.' si está presente
+        normalizedUrl = normalizedUrl.replace(/^(https?:\/\/)www\./i, '$1');
+        
+        // Eliminar la barra final si está presente
+        normalizedUrl = normalizedUrl.replace(/\/$/, '');
+        
+        // Eliminar parámetros de seguimiento comunes
+        const urlObj = new URL(normalizedUrl);
+        ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content'].forEach(param => {
+            urlObj.searchParams.delete(param);
+        });
+        
+        normalizedUrl = urlObj.toString();
+        
+        return normalizedUrl;
+    } catch (error) {
+        console.warn(`Error normalizing URL: ${url}`, error);
+        return null;
     }
-    return normalizedUrl;
 };
 
 /** Checks if the current time is close to the provided email end time.
@@ -563,6 +587,201 @@ function createWorker(workerData) {
     });
 }
 
+/** Searches multiple search engines for the given term, site, start date, and end date.
+ *
+ * @param {string} term - The search term to look for
+ * @param {string} site - The specific site to search on
+ * @param {Date} startDate - The start date for the search
+ * @param {Date} endDate - The end date for the search
+ * @return {Array} An array of results from all search engines          */
+async function searchMultipleEngines(term, site, startDate, endDate) {
+    const results = [];
+    
+    // Bing search
+    const bingResults = await searchBing(term, site, startDate, endDate);
+    results.push(...bingResults);
+    
+    // Google News search
+    const googleResults = await searchGoogleNews(term, site, startDate, endDate);
+    results.push(...googleResults);
+    
+    // DuckDuckGo search
+    const duckResults = await searchDuckDuckGo(term, site, startDate, endDate);
+    results.push(...duckResults);
+    
+    return results;
+}
+
+async function searchBing(term, site, startDate, endDate) {
+    const formatDate = date => date.toISOString().split('T')[0];
+    const freshness = `${formatDate(startDate)}..${formatDate(endDate)}`;
+    const searchUrl = `https://www.bing.com/news/search?q=${encodeURIComponent(term)}+site:${encodeURIComponent(site)}&qft=sortbydate%3d"1"&form=YFNR&tf=${freshness}`;
+    const html = await fetchWithRetry(searchUrl);
+    return parseBingResults(html);
+}
+
+async function searchGoogleNews(term, site, startDate, endDate) {
+    const formatDate = date => date.toISOString().split('T')[0];
+    const searchUrl = `https://news.google.com/search?q=${encodeURIComponent(term)}+site:${encodeURIComponent(site)}+after:${formatDate(startDate)}+before:${formatDate(endDate)}&hl=es&gl=ES&ceid=ES:es`;
+    const html = await fetchWithRetry(searchUrl);
+    return parseGoogleNewsResults(html);
+}
+
+async function searchDuckDuckGo(term, site, startDate, endDate) {
+    // DuckDuckGo doesn't support date range in its URL parameters
+    // We'll need to filter the results after fetching
+    const searchUrl = `https://duckduckgo.com/?q=${encodeURIComponent(term)}+site:${encodeURIComponent(site)}&t=h_&ia=news`;
+    const html = await fetchWithRetry(searchUrl);
+    const results = parseDuckDuckGoResults(html);
+    return filterResultsByDate(results, startDate, endDate);
+}
+
+function filterResultsByDate(results, startDate, endDate) {
+    return results.filter(result => {
+        const articleDate = new Date(result.date);
+        return articleDate >= startDate && articleDate <= endDate;
+    });
+}
+
+function parseBingResults(html) {
+    try {
+        const $ = cheerio.load(html);
+        const results = [];
+        $("li.b_algo").each((i, element) => {
+            if (results.length >= 20) return false; // Limit to 20 results
+            const titleElement = $(element).find("h2 a");
+            const dateElement = $(element).find("div.news_dt");
+            if (titleElement.length && dateElement.length) {
+                const title = titleElement.text().trim();
+                const link = normalizeUrl(titleElement.attr("href"));
+                const date = parseDate(dateElement.text().trim());
+                if (title && link && date) {
+                    results.push({ title, link, date });
+                }
+            }
+        });
+        return results;
+    } catch (error) {
+        console.error("Error parsing Bing results:", error);
+        return [];
+    }
+}
+
+async function parseGoogleNewsResults(html) {
+    try {
+        const $ = cheerio.load(html);
+        const results = [];
+        const promises = [];
+
+        $("article").each((i, element) => {
+            if (results.length >= 20) return false; // Limit to 20 results
+
+            const titleElement = $(element).find("h3 a");
+            const dateElement = $(element).find("time");
+
+            if (titleElement.length && dateElement.length) {
+                const title = titleElement.text().trim();
+                let link = titleElement.attr("href");
+                
+                // Manejar URLs relativas de Google News
+                if (link && link.startsWith('./articles/')) {
+                    link = `https://news.google.com${link.slice(1)}`;
+                } else if (link && link.startsWith('/')) {
+                    link = `https://news.google.com${link}`;
+                }
+                
+                const date = dateElement.attr("datetime");
+                
+                if (title && link && date) {
+                    // Usar Promise para manejar la normalización y seguimiento de redirecciones de forma asíncrona
+                    promises.push(
+                        followRedirects(link)
+                            .then(finalUrl => normalizeUrl(finalUrl))
+                            .then(normalizedUrl => {
+                                if (normalizedUrl) {
+                                    results.push({ 
+                                        title, 
+                                        link: normalizedUrl, 
+                                        date: new Date(date).toISOString() 
+                                    });
+                                }
+                            })
+                            .catch(error => console.error(`Error processing link: ${link}`, error))
+                    );
+                }
+            }
+        });
+
+        // Esperar a que todas las promesas se resuelvan
+        await Promise.all(promises);
+
+        return results.sort((a, b) => new Date(b.date) - new Date(a.date));
+    } catch (error) {
+        console.error("Error parsing Google News results:", error);
+        return [];
+    }
+}
+
+async function followRedirects(url, maxRedirects = 5) {
+    let redirects = 0;
+    let currentUrl = url;
+
+    while (redirects < maxRedirects) {
+        try {
+            const response = await fetch(currentUrl, { method: 'HEAD', redirect: 'manual' });
+            if (response.status >= 300 && response.status < 400) {
+                currentUrl = new URL(response.headers.get('location'), currentUrl).href;
+                redirects++;
+            } else {
+                return currentUrl;
+            }
+        } catch (error) {
+            console.error(`Error following redirect for ${currentUrl}:`, error);
+            return currentUrl;
+        }
+    }
+
+    console.warn(`Max redirects reached for ${url}`);
+    return currentUrl;
+}
+
+function parseDuckDuckGoResults(html) {
+    try {
+        const $ = cheerio.load(html);
+        const results = [];
+        $(".result__body").each((i, element) => {
+            if (results.length >= 20) return false; // Limit to 20 results
+            const titleElement = $(element).find(".result__title a");
+            const dateElement = $(element).find(".result__timestamp");
+            if (titleElement.length && dateElement.length) {
+                const title = titleElement.text().trim();
+                const link = normalizeUrl(titleElement.attr("href"));
+                const date = parseDate(dateElement.text().trim());
+                if (title && link && date) {
+                    results.push({ title, link, date });
+                }
+            }
+        });
+        return results;
+    } catch (error) {
+        console.error("Error parsing DuckDuckGo results:", error);
+        return [];
+    }
+}
+
+/** Parses a given date string and returns the corresponding ISO 8601 formatted date.
+ *
+ * @param {string} dateString - The date string to be parsed.
+ * @return {string|null} The parsed ISO 8601 formatted date, or null if the date string is invalid. */
+function parseDate(dateString) {
+    try {
+        return new Date(dateString).toISOString();
+    } catch (error) {
+        console.warn("Invalid date:", dateString);
+        return null;
+    }
+}
+
 /** Crawls a website for articles related to the given terms and returns the results.
  *
  * @param {string} url - The URL of the website to crawl.
@@ -579,50 +798,44 @@ function createWorker(workerData) {
  *                                                    - term: The term the article was found for.
  *                                                    - fullText: The full text of the article.
  *                                                    - date: The date the article was published.                                        */
-async function crawlWebsite(url, terms, workerAddedLinks) {
+async function crawlWebsite(url, terms, workerAddedLinks, depth = 2) {
     let results = {};
     terms.forEach(term => results[term] = new Set());
     console.log(`Crawling ${url}...`);
     const now = new Date();
-    const startDate = new Date(now - 24 * 60 * 60 * 1000); // 24 hours ago
-    const formatDate = date => date.toISOString().split('T')[0];
-    const freshness = `${formatDate(startDate)}..${formatDate(now)}`;
+    const startDate = new Date(now - 48 * 60 * 60 * 1000); // 48 hours ago
 
-    for (const term of terms) {
-        if (globalStopFlag) {
-            console.log("Stopping crawl due to global stop flag");
-            return results;
-        }
-        try {
-            const searchUrl = `https://www.bing.com/search?q=${encodeURIComponent(term)}+site:${encodeURIComponent(url)}&freshness=${freshness}&sortby=date`;
-            const html = await fetchWithRetry(searchUrl);
-            const $ = cheerio.load(html);
-            const articleElements = $("li.b_algo");
-            for (let i = 0; i < articleElements.length && !globalStopFlag; i++) {
-                const article = articleElements[i];
-                const titleElement = $(article).find("h2");
-                const linkElement = titleElement.find("a");
-                const dateElement = $(article).find("span.news_dt");
-                if (titleElement.length && linkElement.length && dateElement.length) {
-                    const title = titleElement.text().trim();
-                    const link = normalizeUrl(linkElement.attr("href"));
-                    const dateText = dateElement.text().trim();
+    const urlQueue = new Queue();
+    urlQueue.enqueue(url);
+    const crawledUrls = new Set();
+
+    while (!urlQueue.isEmpty() && depth > 0) {
+        const currentUrl = urlQueue.dequeue();
+        
+        if (crawledUrls.has(currentUrl)) continue;
+        crawledUrls.add(currentUrl);
+
+        for (const term of terms) {
+            if (globalStopFlag) return results;
+
+            try {
+                const searchResults = await searchMultipleEngines(term, currentUrl, startDate, now);
+
+                for (const result of searchResults) {
+                    if (globalStopFlag) return results;
+
+                    const { title, link, date } = result;
+
                     if (!isWebsiteValid(url, link)) continue;
+
                     try {
-                        if (!workerAddedLinks.has(link) && isRecent(dateText)) {
-                            let articleContent;
-                            try {
-                                articleContent = await extractArticleText(link);
-                            } catch (error) {
-                                console.error(`Error extracting text from ${link}: ${error.message}`);
-                                continue;
-                            }
+                        if (!workerAddedLinks.has(link) && isRecent(date)) {
+                            let articleContent = await extractArticleText(link);
                             const { score, mostCommonTerm } = relevanceScoreAndMaxCommonFoundTerm(title + ' ' + articleContent);
+                            
                             if (score > 0) {
                                 workerAddedLinks.add(link);
-                                console.log("+++++++++++++++++++++++++++++++++++++++++++++++++++++++");
-                                console.log(`++++++ ADDED ARTICLE!!! - ${link}`);
-                                console.log("+++++++++++++++++++++++++++++++++++++++++++++++++++++++");
+                                console.log(`+++ADDED ARTICLE!: ${link}`);
                                 results[mostCommonTerm].add({
                                     title: title,
                                     link: link,
@@ -630,7 +843,15 @@ async function crawlWebsite(url, terms, workerAddedLinks) {
                                     score: score,
                                     term: mostCommonTerm,
                                     fullText: articleContent,
-                                    date: dateText
+                                    date: date
+                                });
+
+                                // Add internal links to urlQueue
+                                const internalLinks = extractInternalLinks(articleContent, url);
+                                internalLinks.forEach(internalLink => {
+                                    if (!crawledUrls.has(internalLink)) {
+                                        urlQueue.enqueue(internalLink);
+                                    }
                                 });
                             }
                         }
@@ -638,18 +859,49 @@ async function crawlWebsite(url, terms, workerAddedLinks) {
                         console.error(`Error processing article ${link}: ${error.message}`);
                     }
                 }
-            }
-        } catch (error) {
-            console.error(`Error crawling ${url} for term ${term}: ${error.message}`);
-            if (error.response) {
-                console.error(`Status: ${error.response.status}, Data: ${JSON.stringify(error.response.data)}`);
+            } catch (error) {
+                console.error(`Error crawling ${currentUrl} for term ${term}: ${error.message}`);
             }
         }
+
+        depth--;
     }
+
     Object.keys(results).forEach(term => {
         results[term] = Array.from(results[term]);
     });
     return results;
+}
+
+class Queue {
+    constructor() {
+        this.items = [];
+    }
+
+    enqueue(element) {
+        this.items.push(element);
+    }
+
+    dequeue() {
+        if (this.isEmpty()) return "Underflow";
+        return this.items.shift();
+    }
+
+    isEmpty() {
+        return this.items.length == 0;
+    }
+}
+
+function extractInternalLinks(html, baseUrl) {
+    const $ = cheerio.load(html);
+    const internalLinks = new Set();
+    $('a').each((i, elem) => {
+        const href = $(elem).attr('href');
+        if (href && isWebsiteValid(baseUrl, href)) {
+            internalLinks.add(new URL(href, baseUrl).href);
+        }
+    });
+    return internalLinks;
 }
 
 /** Splits an array into a specified number of chunks.
@@ -1095,7 +1347,7 @@ const main = async () => {
         await saveResults(resultados, emailTime);
         console.log("Results saved.");
         console.log('++++++++++++++++++++++++++++++++++++++');
-        console.log(`++++++++++++++ Current articles: ${resultados.length} ++`);
+        console.log(`++++++++++++++ Current articles: ${Object.values(resultados).flat().length} ++`);
         console.log('++++++++++++++++++++++++++++++++++++++');
         if (globalStopFlag) {
             console.log("Stopping main loop due to global stop flag");
