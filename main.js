@@ -682,27 +682,24 @@ async function searchDuckDuckGo(term, site, startDate, endDate, retries = 3, del
 }
 
 function parseDuckDuckGoResults(html) {
-    try {
-        const $ = cheerio.load(html);
-        const results = [];
-        $(".result__body").each((i, element) => {
-            if (results.length >= 20) return false; // Limit to 20 results
-            const titleElement = $(element).find(".result__title a");
-            const dateElement = $(element).find(".result__timestamp");
-            if (titleElement.length && dateElement.length) {
-                const title = titleElement.text().trim();
-                const link = normalizeUrl(titleElement.attr("href"));
-                const date = parseDate(dateElement.text().trim());
-                if (title && link && date) {
-                    results.push({ title, link, date });
-                }
-            }
-        });
-        return results;
-    } catch (error) {
-        console.error("Error parsing DuckDuckGo results:", error);
-        return [];
-    }
+    const $ = cheerio.load(html);
+    const results = [];
+    $('.result__body').each((i, element) => {
+        const titleElement = $(element).find('.result__title a');
+        const snippetElement = $(element).find('.result__snippet');
+        const dateElement = $(element).find('.result__timestamp');
+
+        if (titleElement.length) {
+            const title = titleElement.text().trim();
+            const link = titleElement.attr('href');
+            const snippet = snippetElement.text().trim();
+            const date = dateElement.text().trim();
+
+            results.push({ title, link, snippet, date });
+        }
+    });
+
+    return results;
 }
 
 function filterResultsByDate(results, startDate, endDate) {
