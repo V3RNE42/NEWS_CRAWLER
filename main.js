@@ -24,7 +24,7 @@ const SENSITIVITY = config.text_analysis.topic_sensitivity;
 const MAX_TOKENS_PER_CALL = config.openai.max_tokens_per_call;
 const SIMILARITY_THRESHOLD = config.text_analysis.max_similarity;
 const MAX_RETRIES_PER_FETCH = 3; //to be managed by user configuration
-const INITIAL_DEALY = 500; //to be managed by user configuration
+const INITIAL_DELAY = 500; //to be managed by user configuration
 const MINUTES_TO_CLOSE = 10 * 60000;
 let FALSE_ALARM = false;
 let BROWSER_PATH;
