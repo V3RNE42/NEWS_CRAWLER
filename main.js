@@ -595,7 +595,7 @@ async function crawlWebsite(url, terms, workerAddedLinks) {
         }
         try {
             const searchUrl = `https://www.bing.com/search?q=${encodeURIComponent(term)}+site:${encodeURIComponent(url)}&freshness=${freshness}&sortby=date`;
-            const html = await fetchWithRetry(searchUrl, MAX_RETRIES_PER_FETCH);
+            const html = await fetchWithRetry(searchUrl);
             const $ = cheerio.load(html);
             const articleElements = $("li.b_algo");
             for (let i = 0; i < articleElements.length && !globalStopFlag; i++) {
