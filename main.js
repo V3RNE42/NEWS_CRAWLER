@@ -35,6 +35,7 @@ const CRAWLED_RESULTS_JSON = "crawled_results.json";
 const CRAWL_COMPLETE_FLAG = "crawl_complete.flag";
 const CRAWL_COMPLETE_TEXT = "Crawling completed!";
 const MOST_COMMON_TERM = "Most_Common_Term";
+const DELAY_BETWEEN_SEARCHES = 5000; // 5 segundos
 
 const rateLimiter = new RateLimiter({
     tokensPerInterval: 1,
@@ -48,6 +49,12 @@ terms = terms.map((term) => term.toLowerCase());
 let globalStopFlag = false;
 
 //FUNCTIONS
+
+async function searchWithDelay(searchFunction, ...args) {
+    await new Promise(resolve => setTimeout(resolve, DELAY_BETWEEN_SEARCHES));
+    return searchFunction(...args);
+}
+
 /** Parses a time string in the format HH:MM (24-hour format) and returns a Date object
  * representing the time. If the time string is invalid or the hour or minute is not a number,
  * an Error is thrown.
@@ -441,14 +448,13 @@ const isRecent = (dateText) => {
  * @param {number} [initialDelay=INITIAL_DELAY] - The initial delay in milliseconds.
  * @throws {Error} If the maximum number of retries is exceeded.
  * @return {Promise<string>} The response data from the fetched URL.    */
-async function fetchWithRetry(url, retries = 0, initialDelay = INITIAL_DELAY) {
+async function fetchWithRetry(url, retries = 0, maxRetries = 3, initialDelay = 10000) {
+    const userAgent = userAgents[Math.floor(Math.random() * userAgents.length)];
+    
     try {
-        const randomDelay = Math.floor(Math.random() * initialDelay);
-        await sleep(randomDelay);
-        await rateLimiter.removeTokens(1);
         const response = await axios.get(url, {
             headers: {
-                'User-Agent': userAgents[Math.floor(Math.random() * userAgents.length)],
+                'User-Agent': userAgent,
                 'Accept-Language': 'en-US,en;q=0.9',
                 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
                 'DNT': '1',
@@ -460,13 +466,13 @@ async function fetchWithRetry(url, retries = 0, initialDelay = INITIAL_DELAY) {
         });
         return response.data;
     } catch (error) {
-        if (retries >= MAX_RETRIES_PER_FETCH) {
-            throw new Error(`Failed to fetch ${url} after ${MAX_RETRIES_PER_FETCH} retries: ${error.message}`);
+        if (retries >= maxRetries) {
+            throw new Error(`Failed to fetch ${url} after ${maxRetries} retries: ${error.message}`);
         }
-        const delay = initialDelay * Math.pow(5, retries) * 20;
+        const delay = initialDelay * Math.pow(2, retries);
         console.log(`Attempt ${retries + 1} failed for ${url}. Retrying in ${delay}ms...`);
-        await sleep(delay);
-        return fetchWithRetry(url, retries + 1, delay);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        return fetchWithRetry(url, retries + 1, maxRetries, initialDelay);
     }
 }
 
@@ -595,26 +601,27 @@ function createWorker(workerData) {
 
 /** Searches multiple search engines for the given term, site, start date, and end date.
  *
- * @param {string} term - The search term to look for
- * @param {string} site - The specific site to search on
- * @param {Date} startDate - The start date for the search
- * @param {Date} endDate - The end date for the search
- * @return {Array} An array of results from all search engines          */
+ * @param {string} term - The search term to look for.
+ * @param {string} site - The specific site to search on.
+ * @param {Date} startDate - The start date for the search.
+ * @param {Date} endDate - The end date for the search.
+ * @return {Promise<Array>} An array of results from all search engines.    */
 async function searchMultipleEngines(term, site, startDate, endDate) {
+    const cacheKey = `${term}-${site}-${startDate}-${endDate}`;
+    if (searchCache.has(cacheKey)) {
+        console.log(`Using cached results for ${cacheKey}`);
+        return searchCache.get(cacheKey);
+    }
+
     const results = [];
     
-    // Bing search
-    const bingResults = await searchBing(term, site, startDate, endDate);
-    results.push(...bingResults);
-    
-    // Google News search
-    const googleResults = await searchGoogleNews(term, site, startDate, endDate);
+    const googleResults = await searchWithDelay(searchGoogleNews, term, site, startDate, endDate);
     results.push(...googleResults);
     
-    // DuckDuckGo search
-    const duckResults = await searchDuckDuckGo(term, site, startDate, endDate);
-    results.push(...duckResults);
+    const bingResults = await searchWithDelay(searchBing, term, site, startDate, endDate);
+    results.push(...bingResults);
     
+    searchCache.set(cacheKey, results);
     return results;
 }
 
@@ -622,15 +629,26 @@ async function searchBing(term, site, startDate, endDate) {
     const formatDate = date => date.toISOString().split('T')[0];
     const freshness = `${formatDate(startDate)}..${formatDate(endDate)}`;
     const searchUrl = `https://www.bing.com/news/search?q=${encodeURIComponent(term)}+site:${encodeURIComponent(site)}&qft=sortbydate%3d"1"&form=YFNR&tf=${freshness}`;
-    const html = await fetchWithRetry(searchUrl);
-    return parseBingResults(html);
+    try {
+        const html = await fetchWithRetry(searchUrl);
+        return parseBingResults(html);
+    } catch (error) {
+        console.error(`Error searching Bing: ${error.message}`);
+        return [];
+    }
 }
 
 async function searchGoogleNews(term, site, startDate, endDate) {
     const formatDate = date => date.toISOString().split('T')[0];
     const searchUrl = `https://news.google.com/search?q=${encodeURIComponent(term)}+site:${encodeURIComponent(site)}+after:${formatDate(startDate)}+before:${formatDate(endDate)}&hl=es&gl=ES&ceid=ES:es`;
-    const html = await fetchWithRetry(searchUrl);
-    return parseGoogleNewsResults(html);
+    
+    try {
+        const html = await fetchWithRetry(searchUrl);
+        return parseGoogleNewsResults(html);
+    } catch (error) {
+        console.error(`Error searching Google News: ${error.message}`);
+        return [];
+    }
 }
 
 const userAgents = [
@@ -648,7 +666,7 @@ async function searchDuckDuckGo(term, site, startDate, endDate) {
         return searchCache.get(cacheKey);
     }
 
-    const searchUrl = `https://duckduckgo.com/?q=${encodeURIComponent(term)}+site:${encodeURIComponent(site)}&t=h_&ia=news`;
+    const searchUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(term)}+site:${encodeURIComponent(site)}`;
 
     try {
         const html = await fetchWithRetry(searchUrl);
@@ -666,18 +684,18 @@ async function searchDuckDuckGo(term, site, startDate, endDate) {
 function parseDuckDuckGoResults(html) {
     const $ = cheerio.load(html);
     const results = [];
-    $('.result__body').each((i, element) => {
+    $('.result').each((i, element) => {
         const titleElement = $(element).find('.result__title a');
         const snippetElement = $(element).find('.result__snippet');
-        const dateElement = $(element).find('.result__timestamp');
+        const urlElement = $(element).find('.result__url');
 
         if (titleElement.length) {
             const title = titleElement.text().trim();
             const link = titleElement.attr('href');
             const snippet = snippetElement.text().trim();
-            const date = dateElement.text().trim();
+            const url = urlElement.text().trim();
 
-            results.push({ title, link, snippet, date });
+            results.push({ title, link, snippet, url });
         }
     });
 
