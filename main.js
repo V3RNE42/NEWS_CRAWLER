@@ -457,7 +457,7 @@ async function fetchWithRetry(url, retries = 0, initialDelay = INITIAL_DEALY) {
         if (retries >= MAX_RETRIES_PER_FETCH) {
             throw new Error(`Failed to fetch ${url} after ${MAX_RETRIES_PER_FETCH} retries: ${error.message}`);
         }
-        const delay = initialDelay * Math.pow(5, retries)*10;
+        const delay = initialDelay * Math.pow(5, retries)*20;
         console.log(`Attempt ${retries + 1} failed for ${url}. Retrying in ${delay}ms...`);
         await sleep(delay);
         return fetchWithRetry(url, retries + 1, delay);
@@ -583,13 +583,18 @@ async function crawlWebsite(url, terms, workerAddedLinks) {
     let results = {};
     terms.forEach(term => results[term] = new Set());
     console.log(`Crawling ${url}...`);
+    const now = new Date();
+    const startDate = new Date(now - 24 * 60 * 60 * 1000); // 24 hours ago
+    const formatDate = date => date.toISOString().split('T')[0];
+    const freshness = `${formatDate(startDate)}..${formatDate(now)}`;
+
     for (const term of terms) {
         if (globalStopFlag) {
             console.log("Stopping crawl due to global stop flag");
             return results;
         }
         try {
-            const searchUrl = `https://www.bing.com/search?q=${encodeURIComponent(term)}+site:${encodeURIComponent(url)}&filters=ex1%3a"ez5"`;
+            const searchUrl = `https://www.bing.com/search?q=${encodeURIComponent(term)}+site:${encodeURIComponent(url)}&freshness=${freshness}&sortby=date`;
             const html = await fetchWithRetry(searchUrl, MAX_RETRIES_PER_FETCH);
             const $ = cheerio.load(html);
             const articleElements = $("li.b_algo");
