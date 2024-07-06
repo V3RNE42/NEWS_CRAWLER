@@ -441,23 +441,29 @@ const isRecent = (dateText) => {
  * @param {number} [initialDelay=INITIAL_DELAY] - The initial delay in milliseconds.
  * @throws {Error} If the maximum number of retries is exceeded.
  * @return {Promise<string>} The response data from the fetched URL.    */
-async function fetchWithRetry(url, retries = 0, initialDelay = INITIAL_DEALY) {
+async function fetchWithRetry(url, retries = 0, initialDelay = INITIAL_DELAY) {
     try {
         const randomDelay = Math.floor(Math.random() * initialDelay);
         await sleep(randomDelay);
         await rateLimiter.removeTokens(1);
         const response = await axios.get(url, {
             headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+                'User-Agent': userAgents[Math.floor(Math.random() * userAgents.length)],
+                'Accept-Language': 'en-US,en;q=0.9',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                'DNT': '1',
+                'Connection': 'keep-alive',
+                'Upgrade-Insecure-Requests': '1',
+                'Cache-Control': 'max-age=0',
             },
-            timeout: 15000
+            timeout: 30000
         });
         return response.data;
     } catch (error) {
         if (retries >= MAX_RETRIES_PER_FETCH) {
             throw new Error(`Failed to fetch ${url} after ${MAX_RETRIES_PER_FETCH} retries: ${error.message}`);
         }
-        const delay = initialDelay * Math.pow(5, retries)*20;
+        const delay = initialDelay * Math.pow(5, retries) * 20;
         console.log(`Attempt ${retries + 1} failed for ${url}. Retrying in ${delay}ms...`);
         await sleep(delay);
         return fetchWithRetry(url, retries + 1, delay);
@@ -631,12 +637,11 @@ const userAgents = [
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
     'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 Safari/605.1.15',
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:89.0) Gecko/20100101 Firefox/89.0',
-    // Añade más User-Agents aquí
 ];
 
 const searchCache = new Map();
 
-async function searchDuckDuckGo(term, site, startDate, endDate, retries = 3, delay = 5000) {
+async function searchDuckDuckGo(term, site, startDate, endDate) {
     const cacheKey = `${term}-${site}-${startDate}-${endDate}`;
     if (searchCache.has(cacheKey)) {
         console.log(`Using cached results for ${cacheKey}`);
@@ -645,40 +650,17 @@ async function searchDuckDuckGo(term, site, startDate, endDate, retries = 3, del
 
     const searchUrl = `https://duckduckgo.com/?q=${encodeURIComponent(term)}+site:${encodeURIComponent(site)}&t=h_&ia=news`;
 
-    for (let i = 0; i < retries; i++) {
-        try {
-            const response = await axios.get(searchUrl, {
-                headers: {
-                    'User-Agent': userAgents[Math.floor(Math.random() * userAgents.length)],
-                    'Accept-Language': 'en-US,en;q=0.9',
-                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-                    'DNT': '1',
-                    'Connection': 'keep-alive',
-                    'Upgrade-Insecure-Requests': '1',
-                    'Cache-Control': 'max-age=0',
-                },
-                timeout: 30000,
-            });
+    try {
+        const html = await fetchWithRetry(searchUrl);
+        const results = parseDuckDuckGoResults(html);
+        const filteredResults = filterResultsByDate(results, startDate, endDate);
 
-            const html = response.data;
-            const results = parseDuckDuckGoResults(html);
-            const filteredResults = filterResultsByDate(results, startDate, endDate);
-
-            searchCache.set(cacheKey, filteredResults);
-            return filteredResults;
-
-        } catch (error) {
-            console.error(`Attempt ${i + 1} failed for ${searchUrl}. Error: ${error.message}`);
-            if (i < retries - 1) {
-                const waitTime = delay * Math.pow(2, i);
-                console.log(`Retrying in ${waitTime}ms...`);
-                await new Promise(resolve => setTimeout(resolve, waitTime));
-            }
-        }
+        searchCache.set(cacheKey, filteredResults);
+        return filteredResults;
+    } catch (error) {
+        console.error(`All attempts failed for ${searchUrl}: ${error.message}`);
+        return [];
     }
-
-    console.error(`All attempts failed for ${searchUrl}`);
-    return [];
 }
 
 function parseDuckDuckGoResults(html) {
