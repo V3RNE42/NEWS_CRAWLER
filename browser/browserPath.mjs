@@ -1,7 +1,7 @@
-const { exec } = require('child_process');
-const os = require('os');
-const fs = require('fs');
-const puppeteer = require('puppeteer-core'); // Use puppeteer-core for custom Chromium path
+import { exec }  from 'child_process';
+import os  from 'os';
+import fs  from 'fs';
+import puppeteer  from 'puppeteer-core';
 
 const getChromiumPaths = () => {
     return new Promise((resolve, reject) => {
@@ -90,6 +90,6 @@ async function findValidChromiumPath() {
     throw new Error('No valid Chromium/Chrome executable found');
 };
 
-module.exports = {
+export {
     findValidChromiumPath
 }

@@ -1,5 +1,5 @@
-const { stopwordsEs, stopwordsEn } = require("./stopWords");
-const sanitizeHtml = require('sanitize-html');
+import { stopWordsEs, stopWordsEn }  from "./stopWords.mjs";
+import sanitizeHtml  from 'sanitize-html';
 
 function filterWords(words, stopwords) {
     const stopwordsSet = new Set(stopwords);
@@ -25,7 +25,7 @@ function getMainTopics(text, language, sensitivity = 5) {
     text = text.toLowerCase();
     text = text.replace(/[^\w\s]/gi, '');
     const words = text.split(/\s+/);
-    const filteredWords = filterWords(words, language == 'ES' ? stopwordsEs : stopwordsEn);
+    const filteredWords = filterWords(words, language == 'ES' ? stopWordsEs : stopWordsEn);
     
     const wordCount = {};
     for (let i = 0; i < filteredWords.length; i++) {
@@ -55,7 +55,7 @@ function getMainTopics(text, language, sensitivity = 5) {
     return result;
 }
 
-module.exports = {
+export {
     getMainTopics,
     sanitizeHtml,
     filterWords

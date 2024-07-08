@@ -1,5 +1,4 @@
-module.exports = {
-    terms: [
+let terms = [
         "5 Ojos",
         "5 eyes",
         "Actividades de espionaje",
@@ -434,13 +433,12 @@ module.exports = {
         "zona de alta conflictividad",
         "Área de Libre Comercio Continental Africana",
         "Área de Libre Comercio de las Américas"
-    ],
-    websites: [
+    ];
+let websites = [
         "https://20minutos.es",
         "https://abc.es",
         "https://ambito.com",
         "https://antena3.com",
-        "https://as.com",
         "https://bbc.com",
         "https://breakingenergy.es",
         "https://cincodias.com",
@@ -546,5 +544,6 @@ module.exports = {
         "https://ultimahora.com",
         "https://vanguardia.com",
         "https://vozpopuli.com"
-    ]
-};
+    ];
+
+export { terms, websites };

@@ -1,8 +1,8 @@
-const natural = require('natural');
+import natural  from 'natural';
+import { stopWordsEn, stopWordsEs }  from "./stopWords.mjs";
+import { filterWords }  from "./topics_extractor.mjs";
+import sanitizeHtml  from 'sanitize-html';
 let TfIdf = natural.TfIdf;
-const { filterWords } = require("./topics_extractor");
-const sanitizeHtml = require('sanitize-html');
-let { stopWordsEn, stopwordsEs } = require("./stopWords");
 
 function preprocessText(text, stopWords) {
     text = sanitizeHtml(text, { allowedTags: [], allowedAttributes: {} });
@@ -43,7 +43,7 @@ function calculateSimilarity(text1, text2) {
  * @param {number} [similarityTreshold=0.85] - The threshold for similarity score - decimal from 0 (minimum) to 1 (maximum)
  * @return {Promise<boolean>} A promise that resolves to true if the similarity score is greater than or equal to the similarity threshold, false otherwise. */
 async function coveringSameNews(text1, text2, spokenLanguage, similarityTreshold = 0.85) {
-    let stopwords = spokenLanguage == "ES" ? stopwordsEs : stopWordsEn;
+    let stopwords = spokenLanguage == "ES" ? stopWordsEs : stopWordsEn;
 
     let processedText1 = preprocessText(text1, stopwords);
     let processedText2 = preprocessText(text2, stopwords);
@@ -53,6 +53,6 @@ async function coveringSameNews(text1, text2, spokenLanguage, similarityTreshold
     return similarityScore >= similarityTreshold;
 }
 
-module.exports = {
+export {
     coveringSameNews
 };

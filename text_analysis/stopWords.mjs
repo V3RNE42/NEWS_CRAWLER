@@ -1,5 +1,4 @@
-module.exports = {
-    stopwordsEn: [
+let stopWordsEn = [
         'i', 'me', 'my', 'myself', 'we', 'our', 'ours', 'ourselves', 'you', 'your', 'yours', 'yourself', 'yourselves', 'he', 'him', 'his', 'himself', 
         'she', 'her', 'hers', 'herself', 'it', 'its', 'itself', 'they', 'them', 'their', 'theirs', 'themselves', 'what', 'which', 'who', 'whom', 'this', 
         'that', 'these', 'those', 'am', 'is', 'are', 'was', 'were', 'be', 'been', 'being', 'have', 'has', 'had', 'having', 'do', 'does', 'did', 'doing', 
@@ -7,8 +6,8 @@ module.exports = {
         'into', 'through', 'during', 'before', 'after', 'above', 'below', 'to', 'from', 'up', 'down', 'in', 'out', 'on', 'off', 'over', 'under', 'again', 
         'further', 'then', 'once', 'here', 'there', 'when', 'where', 'why', 'how', 'all', 'any', 'both', 'each', 'few', 'more', 'most', 'other', 'some', 
         'such', 'no', 'nor', 'not', 'only', 'own', 'same', 'so', 'than', 'too', 'very', 's', 't', 'can', 'will', 'just', 'don', 'should', 'now'
-    ],
-    stopwordsEs: [
+    ];
+let stopWordsEs = [
         'yo', 'que', 'me', 'mi', 'mí', 'conmigo', 'nosotros', 'nosotras', 'nos', 'nuestro', 'nuestra', 'nuestros', 'nuestras', 'tú', 'tu', 'te', 'ti', 'contigo', 
         'vosotros', 'vosotras', 'os', 'vuestro', 'vuestra', 'vuestros', 'vuestras', 'él', 'el', 'ella', 'ello', 'lo', 'los', 'le', 'les', 'se', 'consigo', 
         'ellos', 'ellas', 'sí', 'ser', 'soy', 'eres', 'es', 'somos', 'sois', 'son', 'era', 'eras', 'éramos', 'erais', 'eran', 'fui', 'fuiste', 'fue', 
@@ -24,5 +23,6 @@ module.exports = {
         'fue', 'fuimos', 'fuisteis', 'fueron', 'vaya', 'vayas', 'vaya', 'vayamos', 'vayáis', 'vayan', 'iré', 'irás', 'irá', 'iremos', 'iréis', 'irán', 
         'iría', 'irías', 'iríamos', 'iríais', 'irían', 'de', 'desde', 'a', 'ante', 'bajo', 'cabe', 'con', 'en', 'entre', 'hasta', 'hacia', 'sin', 'sobre', 
         'tras', 'la', 'para', 'por', 'mientras', 'un', 'una', 'ni', 'siquiera'
-    ]
-}
+    ];
+
+export {stopWordsEn, stopWordsEs};
