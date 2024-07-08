@@ -25,7 +25,7 @@ const MAX_TOKENS_PER_CALL = config.openai.max_tokens_per_call;
 const SIMILARITY_THRESHOLD = config.text_analysis.max_similarity;
 const MAX_RETRIES_PER_FETCH = 3; //to be managed by user configuration
 const INITIAL_DEALY = 500; //to be managed by user configuration
-const MINUTES_TO_CLOSE = 10 * 60000;
+const MINUTES_TO_CLOSE = 5 * 60000;
 let FALSE_ALARM = false;
 let BROWSER_PATH;
 const STRING_PLACEHOLDER = "placeholder";
@@ -1092,11 +1092,11 @@ const main = async () => {
             if (!resultados[term]) resultados[term] = [];
             resultados[term].push(...articles);
         }
+        console.log('++++++++++++++++++++++++++++++++++++++');
+        console.log(`++++++++++++++ Current articles: ${Object.values(resultados).flat().length} ++`);
+        console.log('++++++++++++++++++++++++++++++++++++++');
         await saveResults(resultados, emailTime);
         console.log("Results saved.");
-        console.log('++++++++++++++++++++++++++++++++++++++');
-        console.log(`++++++++++++++ Current articles: ${resultados.length} ++`);
-        console.log('++++++++++++++++++++++++++++++++++++++');
         if (globalStopFlag) {
             console.log("Stopping main loop due to global stop flag");
             break;
