@@ -1,4 +1,4 @@
-import { parseISO, differenceInHours, parse } from 'date-fns';
+import { parseISO, parse, differenceInHours, isValid, addMinutes, addHours } from 'date-fns';
 import { es, enUS } from 'date-fns/locale';
 import axios from 'axios';
 import cheerio from 'cheerio';
@@ -131,19 +131,88 @@ function isRecent(dateText) {
     const now = new Date();
     let date;
 
+    // Check if the input is a Unix timestamp
+    if (/^\d+$/.test(dateText)) {
+        const timestamp = parseInt(dateText, 10);
+        if (timestamp > 0) {
+            date = new Date(timestamp * 1000);
+            return differenceInHours(now, date) < 24;
+        }
+    }
+
     // Try parsing as ISO 8601 first
     date = parseISO(dateText);
     if (!isNaN(date)) {
-        // Adjust for timezone if present
-        const timezoneOffset = date.getTimezoneOffset() * 60000;
-        date = new Date(date.getTime() - timezoneOffset);
         return differenceInHours(now, date) < 24;
     }
 
-    // Try parsing the new format
-    date = parse(dateText, 'dd/MM/yyyy HH:mm:ss xx', new Date());
+    // Handle "YYYY-MM-DD[TIMEZONE]HH:MM:SS" format
+    const tzAbbrMatch = dateText.match(/(\d{4}-\d{2}-\d{2})([A-Z]{3})(\d{2}:\d{2}:\d{2})/);
+    if (tzAbbrMatch) {
+        const [_, datePart, tz, timePart] = tzAbbrMatch;
+        const combinedDate = `${datePart}T${timePart}`;
+        const offsetMap = {
+            'ACDT': 10.5, 'ACST': 9.5, 'ACT': -5, 'ACWST': 8.75, 'ADT': -3, 'AEDT': 11,
+            'AEST': 10, 'AET': 10, 'AFT': 4.5, 'AKDT': -8, 'AKST': -9, 'ALMT': 6,
+            'AMST': -3, 'AMT': -4, 'ANAT': 12, 'AQTT': 5, 'ART': -3, 'AST': -4,
+            'AWST': 8, 'AZOST': 0, 'AZOT': -1, 'AZT': 4, 'BDT': 8, 'BIOT': 6,
+            'BIT': -12, 'BOT': -4, 'BRST': -2, 'BRT': -3, 'BST': 1, 'BTT': 6,
+            'CAT': 2, 'CCT': 6.5, 'CDT': -5, 'CEST': 2, 'CET': 1, 'CHADT': 13.75,
+            'CHAST': 12.75, 'CHOT': 8, 'CHOST': 9, 'CHST': 10, 'CHUT': 10, 'CIST': -8,
+            'CIT': 8, 'CKT': -10, 'CLST': -3, 'CLT': -4, 'COST': -4, 'COT': -5,
+            'CST': -6, 'CT': 8, 'CVT': -1, 'CWST': 8.75, 'CXT': 7, 'DAVT': 7,
+            'DDUT': 10, 'DFT': 1, 'EASST': -5, 'EAST': -6, 'EAT': 3, 'ECT': -5,
+            'EDT': -4, 'EEST': 3, 'EET': 2, 'EGST': 0, 'EGT': -1, 'EST': -5,
+            'ET': -5, 'FET': 3, 'FJT': 12, 'FKST': -3, 'FKT': -4, 'FNT': -2,
+            'GALT': -6, 'GAMT': -9, 'GET': 4, 'GFT': -3, 'GILT': 12, 'GMT': 0,
+            'GST': 4, 'GYT': -4, 'HDT': -9, 'HAEC': 2, 'HST': -10, 'HKT': 8,
+            'HMT': 5, 'HOVT': 7, 'ICT': 7, 'IDLW': -12, 'IDT': 3, 'IOT': 6,
+            'IRDT': 4.5, 'IRKT': 8, 'IRST': 3.5, 'IST': 5.5, 'JST': 9, 'KALT': 2,
+            'KGT': 6, 'KOST': 11, 'KRAT': 7, 'KST': 9, 'LHST': 10.5, 'LINT': 14,
+            'MAGT': 12, 'MART': -9.5, 'MAWT': 5, 'MDT': -6, 'MET': 1, 'MEST': 2,
+            'MHT': 12, 'MIST': 11, 'MIT': -9.5, 'MMT': 6.5, 'MSK': 3, 'MST': -7,
+            'MUT': 4, 'MVT': 5, 'MYT': 8, 'NCT': 11, 'NDT': -2.5, 'NFT': 11,
+            'NOVT': 7, 'NPT': 5.75, 'NST': -3.5, 'NT': -3.5, 'NUT': -11, 'NZDT': 13,
+            'NZST': 12, 'OMST': 6, 'ORAT': 5, 'PDT': -7, 'PET': -5, 'PETT': 12,
+            'PGT': 10, 'PHOT': 13, 'PHT': 8, 'PKT': 5, 'PMDT': -2, 'PMST': -3,
+            'PONT': 11, 'PST': -8, 'PWT': 9, 'PYST': -3, 'PYT': -4, 'RET': 4,
+            'ROTT': -3, 'SAKT': 11, 'SAMT': 4, 'SAST': 2, 'SBT': 11, 'SCT': 4,
+            'SDT': -10, 'SGT': 8, 'SLST': 5.5, 'SRET': 11, 'SRT': -3, 'SST': 8,
+            'SYOT': 3, 'TAHT': -10, 'THA': 7, 'TFT': 5, 'TJT': 5, 'TKT': 13,
+            'TLT': 9, 'TMT': 5, 'TRT': 3, 'TOT': 13, 'TVT': 12, 'ULAST': 9,
+            'ULAT': 8, 'USZ1': 2, 'UTC': 0, 'UYST': -2, 'UYT': -3, 'UZT': 5,
+            'VET': -4, 'VLAT': 10, 'VOLT': 4, 'VOST': 6, 'VUT': 11, 'WAKT': 12,
+            'WAST': 2, 'WAT': 1, 'WEST': 1, 'WET': 0, 'WIT': 7, 'WGST': -2,
+            'WGT': -3, 'WST': 8, 'YAKT': 9, 'YEKT': 5
+        };
+        const offset = offsetMap[tz] || 0;
+        date = parse(combinedDate, "yyyy-MM-dd'T'HH:mm:ss", new Date());
+        if (isValid(date)) {
+            date = addHours(date, offset);
+            return differenceInHours(now, date) < 24;
+        }
+    }
+
+    // Handle "dd/MM/yyyy HH:mm" format
+    date = parse(dateText, 'dd/MM/yyyy HH:mm', new Date());
     if (isValid(date)) {
         return differenceInHours(now, date) < 24;
+    }
+
+    // Handle "dd-MM-yyyy HH:mm:ss" format
+    date = parse(dateText, 'dd-MM-yyyy HH:mm:ss', new Date());
+    if (isValid(date)) {
+        return differenceInHours(now, date) < 24;
+    }
+
+    // Handle preamble like "By Lucas Leiroz de Almeida, July 08, 2024"
+    const preambleMatch = dateText.match(/.*, (\w+ \d{2}, \d{4})/);
+    if (preambleMatch) {
+        const [_, datePart] = preambleMatch;
+        date = parse(datePart, 'MMMM dd, yyyy', new Date(), { locale: enUS });
+        if (isValid(date)) {
+            return differenceInHours(now, date) < 24;
+        }
     }
 
     // Handle relative dates
@@ -184,6 +253,7 @@ function isRecent(dateText) {
                 date.setMonth(date.getMonth() - parseInt(amount));
                 break;
         }
+        return differenceInHours(now, date) < 24;
     } else {
         const formats = [
             'dd/MM/yyyy',
@@ -202,12 +272,12 @@ function isRecent(dateText) {
 
         for (const format of formats) {
             date = parse(dateText, format, new Date(), { locale: es });
-            if (!isNaN(date)) break;
+            if (isValid(date)) break;
             date = parse(dateText, format, new Date(), { locale: enUS });
-            if (!isNaN(date)) break;
+            if (isValid(date)) break;
         }
 
-        if (isNaN(date)) {
+        if (!isValid(date)) {
             const spanishMonthAbbr = {
                 'ene': 0, 'feb': 1, 'mar': 2, 'abr': 3, 'may': 4, 'jun': 5,
                 'jul': 6, 'ago': 7, 'sept': 8, 'sep': 8, 'oct': 9, 'nov': 10, 'dic': 11
@@ -220,11 +290,27 @@ function isRecent(dateText) {
                     year = year ? parseInt(year) : now.getFullYear();
                     day = day ? parseInt(day) : 1;
                     date = new Date(year, month, day);
+                    return differenceInHours(now, date) < 24;
                 }
             }
         }
 
-        if (isNaN(date)) {
+        // Handle natural language dates like "Panamá, 09 de julio del 2024"
+        const nlMatch = dateText.match(/(\d{1,2})\s*de\s*(\w+)\s*del?\s*(\d{4})/i);
+        if (nlMatch) {
+            let [_, day, month, year] = nlMatch;
+            const spanishMonthFull = {
+                'enero': 0, 'febrero': 1, 'marzo': 2, 'abril': 3, 'mayo': 4, 'junio': 5,
+                'julio': 6, 'agosto': 7, 'septiembre': 8, 'octubre': 9, 'noviembre': 10, 'diciembre': 11
+            };
+            month = spanishMonthFull[month.toLowerCase()];
+            if (month !== undefined) {
+                date = new Date(parseInt(year), month, parseInt(day));
+                return differenceInHours(now, date) < 24;
+            }
+        }
+
+        if (!isValid(date)) {
             console.warn(`Could not parse date: ${dateText}`);
             return false;
         }
@@ -233,13 +319,14 @@ function isRecent(dateText) {
     return differenceInHours(now, date) < 24;
 }
 
+
 async function crawlWebsite(url, terms, workerAddedLinks, cycleEndTime, maxDepth = 3) {
     const results = {};
     terms.forEach(term => results[term] = []);
 
     async function crawl(currentUrl, depth) {
         if (depth > maxDepth || workerAddedLinks.has(currentUrl) || Date.now() >= cycleEndTime.getTime()) {
-            return;
+            return results;
         }
 
         workerAddedLinks.add(currentUrl);
@@ -287,17 +374,27 @@ async function crawlWebsite(url, terms, workerAddedLinks, cycleEndTime, maxDepth
                 })
                 .filter(href => href && isWebsiteValid(url, href));
 
-            for (const link of links) {
-                if (!workerAddedLinks.has(link) && Date.now() < cycleEndTime.getTime()) {
-                    await crawl(link, depth + 1);
+                for (const link of links) {
+                    if (!workerAddedLinks.has(link) && Date.now() < cycleEndTime.getTime()) {
+                        const subResults = await crawl(link, depth + 1);
+                        for (const [term, articles] of Object.entries(subResults)) {
+                            if (!results[term]) results[term] = [];
+                            results[term].push(...articles);
+                        }
+                    }
                 }
-            }
         } catch (error) {
             console.error(`Error crawling ${currentUrl}: ${error.message}`);
         }
     }
 
-    await crawl(url, 0);
+    try {
+        await crawl(url, 0);
+    } catch (error) {
+        console.error(`Error in crawlWebsite for ${url}: ${error.message}`);
+    }
+
+    console.log(`Finished crawling ${url}. Found ${Object.values(results).flat().length} articles.`);
     return results;
 }
 

@@ -1,26 +1,26 @@
 //MODULES AND IMPORTS
-import nodemailer  from "nodemailer";
-import fs  from "fs";
-import path  from "path";
+import nodemailer from "nodemailer";
+import fs from "fs";
+import path from "path";
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-import cheerio  from "cheerio";
-import { OpenAI }  from "openai";
-import puppeteer  from "puppeteer";
-import { Worker, isMainThread, parentPort, workerData }  from 'worker_threads';
-import os  from 'os';
-import { terms as Terms, websites }  from "./terminos.mjs";
+import cheerio from "cheerio";
+import { OpenAI } from "openai";
+import puppeteer from "puppeteer";
+import { Worker, isMainThread, parentPort, workerData } from 'worker_threads';
+import os from 'os';
+import { terms as Terms, websites } from "./terminos.mjs";
 let terms = Terms;
 import pkg from 'fs-extra';
 const { readJson } = pkg;
 const config = await readJson("config.json");
 
-import { getMainTopics, sanitizeHtml }  from "./text_analysis/topics_extractor.mjs";
-import { coveringSameNews }  from "./text_analysis/natural_processing.mjs";
-import { findValidChromiumPath }  from "./browser/browserPath.mjs";
+import { getMainTopics, sanitizeHtml } from "./text_analysis/topics_extractor.mjs";
+import { coveringSameNews } from "./text_analysis/natural_processing.mjs";
+import { findValidChromiumPath } from "./browser/browserPath.mjs";
 import { crawlWebsite } from "./crawlWebsite.mjs";
 
 //IMPORTANT CONSTANTS AND SETTINGS
@@ -449,60 +449,88 @@ function shuffleArray(array) {
 /** Crawls multiple websites for articles related to specified terms.
  *
  * @return {Promise<Object>} An object containing arrays of articles for each term. */
+/** Crawls multiple websites for articles related to specified terms.
+ *
+ * @return {Promise<Object>} An object containing arrays of articles for each term. */
 const crawlWebsites = async (cycleEndTime) => {
     console.log("Starting crawlWebsites function...");
     let allResults = {};
     for (const term of terms) allResults[term] = [];
     const shuffledWebsites = shuffleArray([...websites]);
-    const maxConcurrentCrawlers = os.cpus().length;
-    let workerAddedLinks = new Set(addedLinks);
+    const maxConcurrentWorkers = os.cpus().length;
+    const websiteChunks = chunkArray(shuffledWebsites, maxConcurrentWorkers);
+    console.log(`Creating ${maxConcurrentWorkers} worker(s)...`);
 
-    const websiteChunks = chunkArray(shuffledWebsites, maxConcurrentCrawlers);
-
-    const crawlerPromises = websiteChunks.map(websiteChunk =>
+    const workerPromises = websiteChunks.map((websiteChunk, index) =>
         new Promise(async (resolve) => {
+            console.log(`Worker ${index} starting...`);
+            let workerAddedLinks = new Set(addedLinks);
             let chunkResults = {};
             for (const website of websiteChunk) {
-                if (Date.now() >= cycleEndTime.getTime() || globalStopFlag) {
-                    console.log(`Crawler reached cycle end time or global stop flag set, stopping.`);
+                if (Date.now() >= cycleEndTime.getTime()) {
+                    console.log(`Worker ${index} reached cycle end time, stopping.`);
                     break;
                 }
-                const results = await crawlWebsite(website, terms, workerAddedLinks);
-                for (const [term, articles] of Object.entries(results)) {
-                    if (!chunkResults[term]) chunkResults[term] = [];
-                    chunkResults[term].push(...articles);
+                console.log(`Worker ${index} crawling ${website}...`);
+                try {
+                    const results = await crawlWebsite(website, terms, workerAddedLinks, new Date(cycleEndTime));
+                    for (const [term, articles] of Object.entries(results)) {
+                        if (!chunkResults[term]) chunkResults[term] = [];
+                        chunkResults[term].push(...articles);
+                    }
+                    console.log(`Worker ${index} found ${Object.values(results).flat().length} articles on ${website}`);
+                } catch (error) {
+                    console.error(`Error crawling ${website}: ${error.message}`);
                 }
             }
-            resolve(chunkResults);
+            console.log(`Worker ${index} finished. Total found: ${Object.values(chunkResults).flat().length} articles.`);
+            resolve({ articles: chunkResults, addedLinks: Array.from(workerAddedLinks) });
         })
     );
 
-    const timeoutPromise = new Promise(resolve =>
+    const timeoutPromise = new Promise(resolve => {
+        const timeoutMs = cycleEndTime.getTime() - Date.now();
         setTimeout(() => {
-            console.log("Timeout reached. Collecting results...");
-            globalStopFlag = true;
+            console.log("Timeout reached. Forcing collection of results...");
             resolve('timeout');
-        }, cycleEndTime.getTime() - Date.now())
+        }, timeoutMs > 0 ? timeoutMs : 0);
+    });
+
+    await Promise.race([Promise.all(workerPromises), timeoutPromise]);
+
+    console.log("Collecting final results...");
+    const collectedResults = await Promise.all(
+        workerPromises.map(async (workerPromise, index) => {
+            try {
+                const result = await Promise.race([
+                    workerPromise,
+                    new Promise((_, reject) => setTimeout(() => reject(new Error('Worker timeout')), 60000)) // 60 second timeout
+                ]);
+                console.log(`Successfully collected results from worker ${index}.`);
+                return result;
+            } catch (error) {
+                console.error(`Error retrieving results from worker ${index}:`, error);
+                return null;
+            }
+        })
     );
 
-    const raceResult = await Promise.race([
-        Promise.all(crawlerPromises),
-        timeoutPromise
-    ]);
-
-    console.log(`Race completed. Result: ${raceResult === 'timeout' ? 'Timeout' : 'All crawlers finished'}`);
-
-    const allPromiseResults = await Promise.all(crawlerPromises);
-    for (const crawlerResult of allPromiseResults) {
-        for (const [term, articles] of Object.entries(crawlerResult)) {
-            if (!allResults[term]) allResults[term] = [];
-            allResults[term].push(...articles);
+    for (const workerResult of collectedResults) {
+        if (workerResult && workerResult.articles) {
+            for (const [term, articles] of Object.entries(workerResult.articles)) {
+                if (!allResults[term]) allResults[term] = [];
+                allResults[term].push(...articles);
+            }
+            workerResult.addedLinks.forEach(link => addedLinks.add(link));
         }
     }
 
-    addedLinks = new Set([...addedLinks, ...workerAddedLinks]);
-
-    console.log("All results collected.");
+    const totalArticles = Object.values(allResults).flat().length;
+    console.log(`All results collected. Found total of ${totalArticles} articles.`);
+    console.log("Articles per term:");
+    for (const [term, articles] of Object.entries(allResults)) {
+        console.log(`  ${term}: ${articles.length} articles`);
+    }
     return allResults;
 };
 
@@ -603,6 +631,7 @@ async function removeIrrelevantArticles(results) {
  * @param {Object} results - The results to be saved.
  * @return {Promise<boolean>} - A promise that resolves to a boolean indicating if the crawling is complete.    */
 const saveResults = async (results, emailTime) => {
+    console.log(`These are the results: ${results}`);
     console.log("Saving results...");
     const resultsPath = path.join(__dirname, CRAWLED_RESULTS_JSON);
     const flagPath = path.join(__dirname, CRAWL_COMPLETE_FLAG);
@@ -647,12 +676,18 @@ const loadPreviousResults = () => {
     try {
         if (fs.existsSync(resultsPath)) {
             const fileContent = fs.readFileSync(resultsPath, 'utf8');
-            const previousResults = JSON.parse(fileContent);
+            let previousResults = JSON.parse(fileContent);
             if (!previousResults.results) {
                 throw new Error('Invalid results structure');
             }
             for (const articles of Object.values(previousResults.results)) {
                 articles.forEach(article => addedLinks.add(article.link));
+            }
+            for (let term of terms) {
+                if (previousResults.results[term] == undefined || 
+                    previousResults.results[term] == null) {
+                    previousResults.results[term] = [];
+                }
             }
             return previousResults.results;
         } else {
@@ -834,7 +869,7 @@ async function main() {
     let emailTime = new Date();
     while (!fs.existsSync(path.join(__dirname, CRAWL_COMPLETE_FLAG))) {
         console.log("Starting new crawling cycle...");
-        globalStopFlag = false; // Reset the flag at the start of each cycle
+        globalStopFlag = false;
         const now = new Date();
         emailTime = parseTime(config.time.email);
         const chunkedWebsitesCount = Math.floor(websites.length/os.cpus().length);
@@ -844,69 +879,35 @@ async function main() {
         resultados = loadPreviousResults();
         console.log("Previous results loaded.");
 
-        const maxWorkers = os.cpus().length;
-        const websiteChunks = chunkArray(websites, maxWorkers);
-        const workers = [];
-        const workerPromises = [];
+        const newResults = await crawlWebsites(cycleEndTime);
 
-        for (let i = 0; i < maxWorkers; i++) {
-            const worker = new Worker(__filename, {
-                workerData: {
-                    websites: websiteChunks[i],
-                    terms,
-                    addedLinks: Array.from(addedLinks),
-                    cycleEndTime
-                }
-            });
-
-            workers.push(worker);
-
-            const workerPromise = new Promise((resolve) => {
-                worker.on('message', (message) => {
-                    if (message.type === 'result') {
-                        resolve(message.result);
-                    } else if (message.type === 'addLinks') {
-                        message.links.forEach(link => addedLinks.add(link));
-                    }
-                });
-
-                worker.on('error', console.error);
-                worker.on('exit', (code) => {
-                    console.log(`Worker stopped with exit code ${code}`);
-                    resolve(null);
-                });
-            });
-
-            workerPromises.push(workerPromise);
-        }
-
-        const results = await Promise.all(workerPromises);
-
-        for (const workerResult of results) {
-            if (workerResult) {
-                for (const [term, articles] of Object.entries(workerResult.articles)) {
-                    if (!resultados[term]) resultados[term] = [];
-                    resultados[term].push(...articles);
-                }
-            }
+        // Merge new results with previous results
+        for (const [term, articles] of Object.entries(newResults)) {
+            if (!resultados[term]) resultados[term] = [];
+            resultados[term].push(...articles);
         }
 
         console.log('++++++++++++++++++++++++++++++++++++++');
         console.log(`++++++++++++++ Current articles: ${Object.values(resultados).flat().length} ++`);
         console.log('++++++++++++++++++++++++++++++++++++++');
+        
         const shouldStop = await saveResults(resultados, emailTime);
         console.log("Results saved.");
+        
         if (shouldStop || globalStopFlag) {
             console.log("Stopping main loop");
             break;
         }
+        
         console.log("Waiting before starting next cycle...");
-        await sleep(30000); // 30 seconds delay
+        await sleep(30000);
     }
+
     if (!fs.existsSync(path.join(__dirname, CRAWL_COMPLETE_FLAG)) && !(FALSE_ALARM)) {
         fs.writeFileSync(path.join(__dirname, CRAWL_COMPLETE_FLAG), CRAWL_COMPLETE_TEXT);
         console.log("Crawl complete flag created.");
     }
+    
     console.log("Preparing to send email...");
     await sendEmail(emailTime);
     console.log("Email sent. Main process completed.");
@@ -937,6 +938,21 @@ if (isMainThread) {
         let workerAddedLinks = new Set(initialAddedLinks);
         const results = {};
         for (const term of terms) results[term] = new Set();
+
+        parentPort.on('message', (message) => {
+            if (message === 'terminate') {
+                // Send final result
+                parentPort.postMessage({
+                    type: 'result',
+                    result: {
+                        articles: Object.fromEntries(Object.entries(results).map(([k, v]) => [k, Array.from(v)]))
+                    }
+                });
+                console.log('Worker received terminate signal');
+                process.exit(0);
+            }
+        });
+
         for (const url of websites) {
             if (Date.now() >= cycleEndTime.getTime()) {
                 console.log(`Worker reached cycle end time, stopping.`);
