@@ -821,7 +821,7 @@ async function scrapeRSSFeed(feedUrl, workerAddedLinks) {
     terms.forEach(term => results[term] = []);
 
     try {
-        const feedData = await fetchWithRetry(feedUrl, MAX_RETRIES_PER_FETCH);
+        const feedData = await fetchWithRetry(feedUrl);
         const sanitizedData = await sanitizeXML(feedData);
 
         const options = {
@@ -895,7 +895,7 @@ async function crawlWebsite(url, terms, workerAddedLinks) {
 
             try {
                 const searchUrl = `https://www.bing.com/search?q=${encodeURIComponent(term)}+site:${encodeURIComponent(url)}&filters=ex1%3a"ez5"`;
-                const html = await fetchWithRetry(searchUrl, MAX_RETRIES_PER_FETCH);
+                const html = await fetchWithRetry(searchUrl);
                 const $ = cheerio.load(html);
 
                 const articleElements = $("li.b_algo");
