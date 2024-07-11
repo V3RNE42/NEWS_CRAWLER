@@ -25,9 +25,10 @@ const MAX_TOKENS_PER_CALL = config.openai.max_tokens_per_call;
 const SIMILARITY_THRESHOLD = config.text_analysis.max_similarity;
 const MAX_RETRIES_PER_FETCH = 3; //to be managed by user configuration
 const INITIAL_DEALY = 500; //to be managed by user configuration
-const MINUTES_TO_CLOSE = 5 * 60000;
+const MINUTES_TO_CLOSE = 10 * 60000;
 let FALSE_ALARM = false;
 let BROWSER_PATH;
+
 const STRING_PLACEHOLDER = "placeholder";
 const FAILED_SUMMARY_MSSG = "No se pudo generar un resumen";
 const EMPTY_STRING = "";
@@ -36,45 +37,44 @@ const CRAWL_COMPLETE_FLAG = "crawl_complete.flag";
 const CRAWL_COMPLETE_TEXT = "Crawling completed!";
 const MOST_COMMON_TERM = "Most_Common_Term";
 
-const rateLimiter = new RateLimiter({
-    tokensPerInterval: 1,
-    interval: 'second',
-    fireImmediately: true
-});
-
 let addedLinks = new Set();
 let workers = [];
 terms = terms.map((term) => term.toLowerCase());
-let globalStopFlag = false;
 
-//FUNCTIONS
-/** Parses a time string in the format HH:MM (24-hour format) and returns a Date object
- * representing the time. If the time string is invalid or the hour or minute is not a number,
- * an Error is thrown.
- *
- * @param {string} timeStr - The time string to be parsed.
- * @return {Date} A Date object representing the parsed time.
- * @throws {Error} If the time string is invalid or the hour or minute is not a number. */
+
 const parseTime = (timeStr) => {
+    // Regular expression to match HH:MM format
     const timeRegex = /^([0-1]?[0-9]|2[0-3]):([0-5][0-9])$/;
+
     if (!timeRegex.test(timeStr)) {
         throw new Error('Invalid time format. Please use HH:MM (24-hour format).');
     }
+
     const [hourStr, minuteStr] = timeStr.split(":");
     const hour = parseInt(hourStr, 10);
     const minute = parseInt(minuteStr, 10);
+
     if (isNaN(hour) || isNaN(minute)) {
         throw new Error('Invalid time: hour or minute is not a number');
     }
+
     const now = new Date();
     const result = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hour, minute);
+
+    // Subtract MINUTES_TO_CLOSE
     result.setMinutes(result.getMinutes() - Math.floor(MINUTES_TO_CLOSE / 60000));
+
+    // If the resulting time is earlier than now, set it to tomorrow
     if (result <= now) {
         result.setDate(result.getDate() + 1);
     }
+
     return result;
 };
 
+let globalStopFlag = false;
+
+//FUNCTIONS
 /** Assigns a valid browser path to the BROWSER_PATH variable based on the configuration
  * @return {Promise<void>} A promise that resolves when the browser path is assigned.   */
 async function assignBrowserPath() {
@@ -83,32 +83,16 @@ async function assignBrowserPath() {
         : config.browser.path;
 }
 
-/** Generates the current date in the format DD/MM/YYYY.
- *
- * @return {string} The formatted current date. */
-function todayDate() {
-    const date = new Date();
-    const day = date.getDate().toString().padStart(2, '0');
-    const spanishMonths = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
-    const month = spanishMonths[date.getMonth()];
-    const year = date.getFullYear();
-    return `${day}/${month}/${year}`;
-} 
+const todayDate = () => new Date().toISOString().split("T")[0];
 
-/** Asynchronously delays the execution of code for a specified amount of time.
- * 
- *  @param {number} ms - The number of milliseconds to delay the execution.
- *  @return {Promise<void>} A Promise that resolves after the specified delay.   */
-async function sleep(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
-} 
+const sleep = async (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-/** Extracts the text content of an article from a given URL.
+/**
+ * Extracts the text content of an article from a given URL.
  *
  * @param {string} url - The URL of the article.
  * @return {Promise<string>} A Promise that resolves to the extracted text content. */
 async function extractArticleText(url) {
-    let articleText = "";
     try {
         const browser = await puppeteer.launch({
             headless: true,
@@ -117,39 +101,38 @@ async function extractArticleText(url) {
         });
         const page = await browser.newPage();
         await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-        articleText = await page.evaluate(() => {
+
+        let articleText = await page.evaluate(() => {
             const mainSelectors = [
                 'article', 'main', 'section', '.article-body',
                 '.content', '.main-content', '.entry-content',
                 '.post-content', '.story-body', '.news-article'
             ];
+
             let mainElement = null;
             for (let selector of mainSelectors) {
                 mainElement = document.querySelector(selector);
                 if (mainElement) break;
             }
+
             if (!mainElement) return '';
+
             return mainElement.innerText;
         });
+
         await browser.close();
+
         if (articleText === EMPTY_STRING) {
             const response = await fetch(url);
             const html = await response.text();
             const $ = cheerio.load(html);
             articleText = $.html();
         }
+
         return cleanText(articleText);
     } catch (error) {
-        try {
-            const response = await fetch(url);
-            const html = await response.text();
-            const $ = cheerio.load(html);
-            articleText = $.html();
-            return cleanText(articleText);
-        } catch (error) {
-            console.error(`Error extracting text from ${url}: ${error.message}`);
-            return EMPTY_STRING;
-        }
+        console.error(`Error extracting text from ${url}: ${error.message}`);
+        return EMPTY_STRING;
     }
 }
 
@@ -158,24 +141,21 @@ async function extractArticleText(url) {
  * @return {string} The cleaned text.     */
 const cleanText = (text) => {
     text = sanitizeHtml(text, { allowedTags: [], allowedAttributes: [] });
-    while (text.includes("\n")) {
-        text = text.replace(/\n/g, ' ');
-    }
-    while (text.includes("\t")) {
-        text = text.replace(/\t/g, ' ');
+
+    while (text.includes("\n\n")) {
+        text = text.replace(/\n\n/g, '\n');
     }
     while (text.includes('  ')) {
         text = text.replace(/'  '/g, ' ');
     }
+
+    while (text.includes("\t\t")) {
+        text = text.replace(/\t\t/g, '\t');
+    }
+
     return text.replace(/<[^>]*>/g, ' ').trim();
 }
 
-/** Generates a prompt for OpenAI to generate a summary of a specific part of a news article.
- *
- * @param {string} text - The content of the news article.
- * @param {string} topic - The topic of the news article.
- * @param {number} maxTokens - The maximum number of tokens for the OpenAI response.
- * @return {Promise<string>} The generated prompt for OpenAI.   */
 async function getChunkedOpenAIResponse(text, topic, maxTokens) {
     /** Generates a prompt for OpenAI to generate a summary of a specific part of a news article.
      * @param {string} news_content - The content of the news article.
@@ -188,10 +168,12 @@ async function getChunkedOpenAIResponse(text, topic, maxTokens) {
             `de la siguiente noticia:\n\n\n\n${news_content}\n\n\n\n` +
             `Ignora todo texto que no tenga que ver con el tema de la noticia: ${news_topic}`;
     }
+
     try {
         const chunks = splitTextIntoChunks(text);
         let respuesta = EMPTY_STRING;
         maxTokens = Math.floor(maxTokens / chunks.length);
+
         for (let i = 0; i < chunks.length; i++) {
             let content = getPrompt(chunks[i], topic, (i + 1), chunks.length);
             const response = await openai.chat.completions.create({
@@ -204,10 +186,12 @@ async function getChunkedOpenAIResponse(text, topic, maxTokens) {
                 frequency_penalty: 0.0,
                 presence_penalty: 0.0,
             });
+
             for await (const chunkResponse of response) {
                 respuesta += chunkResponse.choices[0]?.delta?.content || EMPTY_STRING;
             }
         }
+
         return respuesta;
     } catch (error) {
         console.error('Error in OpenAI response:', error);
@@ -220,6 +204,7 @@ async function getChunkedOpenAIResponse(text, topic, maxTokens) {
  *  @returns {number} The amount of tokens      */
 const countTokens = (text) => text.trim().split(/\s+/).length;
 
+
 /** Splits a text into chunks of a maximum number of tokens per call
  * @param {string} text - The text to be split into chunks.
  * @return {string[]} An array of chunks, each containing a maximum of MAX_TOKENS_PER_CALL tokens. */
@@ -227,6 +212,7 @@ function splitTextIntoChunks(text) {
     const tokens = text.split(/\s+/);
     const chunks = [];
     let currentChunk = EMPTY_STRING;
+
     for (const token of tokens) {
         if ((currentChunk + " " + token).length <= MAX_TOKENS_PER_CALL) {
             currentChunk += " " + token;
@@ -235,18 +221,14 @@ function splitTextIntoChunks(text) {
             currentChunk = token;
         }
     }
+
     if (currentChunk) {
         chunks.push(currentChunk.trim());
     }
+
     return chunks;
 }
 
-/** Asynchronously generates a non-chunked OpenAI response for a given text, topic, and maximum number of tokens.
- *
- * @param {string} text - The content of the news article.
- * @param {string} topic - The topic of the news article.
- * @param {number} maxTokens - The maximum number of tokens for the OpenAI response.
- * @return {Promise<string>} The generated OpenAI response. */
 async function getNonChunkedOpenAIResponse(text, topic, maxTokens) {
     text = `Haz un resumen de la siguiente noticia:\n\n\n\n${text}\n\n\n\nIgnora todo texto que no tenga que ver con el tema de la noticia: ${topic}`;
     try {
@@ -271,7 +253,9 @@ async function getNonChunkedOpenAIResponse(text, topic, maxTokens) {
     }
 }
 
-/** Retrieves an OpenAI response for the given text and title.
+
+/**
+ * Retrieves an OpenAI response for the given text and title.
  *
  * @param {string} text - The text to be summarized.
  * @param {string} topic - The topic of the news article.
@@ -282,13 +266,16 @@ async function getOpenAIResponse(text, topic, maxTokens) {
     if (text == EMPTY_STRING || topic == EMPTY_STRING) {
         return EMPTY_STRING;
     }
+
     if (countTokens(text) >= MAX_TOKENS_PER_CALL) {
         return getChunkedOpenAIResponse(text, topic, maxTokens);
     }
+
     return getNonChunkedOpenAIResponse(text, topic, maxTokens);
 }
 
-/** Retrieves the content of a webpage behind a paywall by using a proxy website.
+/**
+ * Retrieves the content of a webpage behind a paywall by using a proxy website.
  *
  * @param {string} link - The URL of the webpage.
  * @return {Promise<{url: string, content: string}>} A promise that resolves to an object containing the content of the webpage 
@@ -306,8 +293,10 @@ async function getProxiedContent(link) {
         await page.type('input#simple-search', link);
         await page.click('#__next > div > section > div > header > div > div:nth-child(4) > form > button');
         await page.waitForNavigation({ waitUntil: 'domcontentloaded' });
+
         const content = await page.evaluate(() => document.body.innerText);
         const retrievedUrl = page.url();
+
         await browser.close();
         return { url: retrievedUrl, content: content };
     } catch (error) {
@@ -316,7 +305,8 @@ async function getProxiedContent(link) {
     }
 }
 
-/** Retrieves a summary of the text using OpenAI's GPT-4 model.
+/**
+ * Retrieves a summary of the text using OpenAI's GPT-4 model.
  *
  * @param {string} link - The URL of the webpage
  * @param {string} fullText - The text content of the news article
@@ -329,6 +319,7 @@ const summarizeText = async (link, fullText, numberOfLinks, topic) => {
     let response = EMPTY_STRING;
     let count = 0;
     let url = link;
+
     while ((response === EMPTY_STRING || countTokens(text) < 150) && count < 3) {
         if (count === 0) {
             response = await getOpenAIResponse(text, topic, maxTokens);
@@ -341,19 +332,26 @@ const summarizeText = async (link, fullText, numberOfLinks, topic) => {
         }
         count++;
     }
+
     return { url, response };
 };
 
-/** Checks if a given date is recent.
+
+/**
+ * Checks if a given date is recent.
  *
  * @param {string} dateText - The date to be checked.
  * @return {boolean} Returns true if the date is recent, false otherwise.   */
 const isRecent = (dateText) => {
     if (!dateText) return false;
+
     const now = new Date();
     let date;
+
+    // Handle relative time in both Spanish and English
     const relativeMatchES = dateText.match(/hace (\d+) (minutos?|horas?|días?|semanas?|meses?)/i);
     const relativeMatchEN = dateText.match(/(\d+) (minute|hour|day|week|month)s? ago/i);
+
     if (relativeMatchES || relativeMatchEN) {
         const [_, amount, unit] = relativeMatchES || relativeMatchEN;
         date = new Date(now);
@@ -403,20 +401,24 @@ const isRecent = (dateText) => {
             "d 'de' MMMM 'de' yyyy",
             "d 'de' MMM'. de' yyyy"
         ];
+
         for (const format of formats) {
             // Try parsing with Spanish locale
             date = parse(dateText, format, new Date(), { locale: es });
             if (!isNaN(date)) break;
+
             // If Spanish fails, try English locale
             date = parse(dateText, format, new Date(), { locale: enUS });
             if (!isNaN(date)) break;
         }
+
         // If standard parsing fails, try custom parsing for abbreviated Spanish months
         if (isNaN(date)) {
             const spanishMonthAbbr = {
                 'ene': 0, 'feb': 1, 'mar': 2, 'abr': 3, 'may': 4, 'jun': 5,
                 'jul': 6, 'ago': 7, 'sept': 8, 'sep': 8, 'oct': 9, 'nov': 10, 'dic': 11
             };
+
             const match = dateText.match(/(\d{1,2}) de (\w{3,5})\. de (\d{4})/);
             if (match) {
                 const [_, day, monthAbbr, year] = match;
@@ -426,21 +428,16 @@ const isRecent = (dateText) => {
                 }
             }
         }
+
         if (isNaN(date)) {
             console.warn(`Could not parse date: ${dateText}`);
             return false;
         }
     }
+
     return differenceInHours(now, date) < 24;
 };
 
-/** Fetches a URL with retries and exponential backoff.
- *
- * @param {string} url - The URL to fetch.
- * @param {number} [retries=0] - The number of retries attempted so far.
- * @param {number} [initialDelay=INITIAL_DELAY] - The initial delay in milliseconds.
- * @throws {Error} If the maximum number of retries is exceeded.
- * @return {Promise<string>} The response data from the fetched URL.    */
 async function fetchWithRetry(url, retries = 0, initialDelay = INITIAL_DEALY) {
     try {
         const randomDelay = Math.floor(Math.random() * initialDelay);
@@ -457,19 +454,22 @@ async function fetchWithRetry(url, retries = 0, initialDelay = INITIAL_DEALY) {
         if (retries >= MAX_RETRIES_PER_FETCH) {
             throw new Error(`Failed to fetch ${url} after ${MAX_RETRIES_PER_FETCH} retries: ${error.message}`);
         }
-        const delay = initialDelay * Math.pow(5, retries)*20;
+        const delay = initialDelay * Math.pow(2, retries);
         console.log(`Attempt ${retries + 1} failed for ${url}. Retrying in ${delay}ms...`);
-        await sleep(delay);
+        await new Promise(resolve => setTimeout(resolve, delay));
         return fetchWithRetry(url, retries + 1, delay);
     }
 }
 
-/** Calculate the relevance score and find the most common term in the given text.
+/**
+ * Calculate the relevance score and find the most common term in the given text.
  *
  * @param {string} text - The text to analyze.
  * @return {object} An object containing the score and the most common term.    */
 const relevanceScoreAndMaxCommonFoundTerm = (text) => {
+    text = text.toLowerCase();
     let score = 0, mostCommonTerm = EMPTY_STRING, maxCommonFoundTermCount = 0;
+
     for (const term of terms) {
         const regex = new RegExp("\\b" + term + "\\b", 'ig');
         const matches = text.match(regex) || [];
@@ -482,13 +482,10 @@ const relevanceScoreAndMaxCommonFoundTerm = (text) => {
             }
         }
     }
+
     return { score, mostCommonTerm };
 };
 
-/** Normalizes a URL by trimming whitespace and converting to lowercase.
- *
- * @param {string} url - The URL to be normalized.
- * @return {string} The normalized URL.*/
 const normalizeUrl = (url) => {
     let normalizedUrl = url.trim().toLowerCase();
     if (normalizedUrl.endsWith('/')) {
@@ -497,7 +494,8 @@ const normalizeUrl = (url) => {
     return normalizedUrl;
 };
 
-/** Checks if the current time is close to the provided email end time.
+/**
+ * Checks if the current time is close to the provided email end time.
  *
  * @param {Date} emailEndTime - The end time for the email
  * @return {boolean} Returns true if the current time is close to the email end time, false otherwise   */
@@ -507,6 +505,7 @@ function closeToEmailingTime(emailEndTime) {
         console.error('Invalid emailEndTime provided to closeToEmailingTime');
         return false;
     }
+
     const now = new Date();
     const endWindow = new Date(emailEndTime.getTime() + MINUTES_TO_CLOSE);
     
@@ -517,6 +516,12 @@ function closeToEmailingTime(emailEndTime) {
     
     return false;
 }
+
+const rateLimiter = new RateLimiter({
+    tokensPerInterval: 1,
+    interval: 'second',
+    fireImmediately: true
+});
 
 /** Creates a new worker thread with the specified workerData.
  * @param {Object} workerData - The data to pass to the worker.
@@ -530,7 +535,9 @@ function createWorker(workerData) {
             }
         });
         workers.push(worker);
+
         let latestResult = null;
+
         worker.on('message', (message) => {
             if (message.type === 'result') {
                 latestResult = message.result;
@@ -541,10 +548,12 @@ function createWorker(workerData) {
                 message.links.forEach(link => addedLinks.add(link));
             }
         });
+
         worker.on('error', (error) => {
             console.error(`Worker error: ${error}`);
             reject(error);
         });
+
         worker.on('exit', (code) => {
             if (code !== 0) {
                 console.error(`Worker stopped with exit code ${code}`);
@@ -553,6 +562,7 @@ function createWorker(workerData) {
             // Resolve with the latest result even if the worker exited unexpectedly
             resolve(latestResult);
         });
+
         // Ensure worker terminates after timeout
         setTimeout(() => {
             if (worker.threadId) {
@@ -563,75 +573,70 @@ function createWorker(workerData) {
     });
 }
 
-/** Crawls a website for articles related to the given terms and returns the results.
- *
- * @param {string} url - The URL of the website to crawl.
- * @param {Array<string>} terms - The terms to search for on the website.
- * @param {Set<string>} workerAddedLinks - A set of links that have already been added.
- * @return {Promise<Object<string, Array<Object>>>} - A promise that resolves to an object containing the results of the crawl.
- *                                                    The object has keys representing the terms searched for, and values representing
- *                                                    an array of objects containing information about the articles found.
- *                                                    Each article object has the following properties:
- *                                                    - title: The title of the article.
- *                                                    - link: The link to the article.
- *                                                    - summary: A placeholder string.
- *                                                    - score: The relevance score of the article.
- *                                                    - term: The term the article was found for.
- *                                                    - fullText: The full text of the article.
- *                                                    - date: The date the article was published.                                        */
 async function crawlWebsite(url, terms, workerAddedLinks) {
     let results = {};
     terms.forEach(term => results[term] = new Set());
+
     console.log(`Crawling ${url}...`);
-    const now = new Date();
-    const startDate = new Date(now - 24 * 60 * 60 * 1000); // 24 hours ago
-    const formatDate = date => date.toISOString().split('T')[0];
-    const freshness = `${formatDate(startDate)}..${formatDate(now)}`;
 
     for (const term of terms) {
         if (globalStopFlag) {
             console.log("Stopping crawl due to global stop flag");
             return results;
         }
+
         try {
-            const searchUrl = `https://www.bing.com/search?q=${encodeURIComponent(term)}+site:${encodeURIComponent(url)}&freshness=${freshness}&sortby=date`;
-            const html = await fetchWithRetry(searchUrl);
+            const searchUrl = `https://www.bing.com/search?q=${encodeURIComponent(term)}+site:${encodeURIComponent(url)}&filters=ex1%3a"ez5"`;
+            const html = await fetchWithRetry(searchUrl, MAX_RETRIES_PER_FETCH);
             const $ = cheerio.load(html);
+
             const articleElements = $("li.b_algo");
+
             for (let i = 0; i < articleElements.length && !globalStopFlag; i++) {
                 const article = articleElements[i];
                 const titleElement = $(article).find("h2");
                 const linkElement = titleElement.find("a");
                 const dateElement = $(article).find("span.news_dt");
+
                 if (titleElement.length && linkElement.length && dateElement.length) {
                     const title = titleElement.text().trim();
                     const link = normalizeUrl(linkElement.attr("href"));
                     const dateText = dateElement.text().trim();
+
                     if (!isWebsiteValid(url, link)) continue;
+
                     try {
-                        if (!workerAddedLinks.has(link) && isRecent(dateText)) {
-                            let articleContent;
-                            try {
-                                articleContent = await extractArticleText(link);
-                            } catch (error) {
-                                console.error(`Error extracting text from ${link}: ${error.message}`);
-                                continue;
-                            }
-                            const { score, mostCommonTerm } = relevanceScoreAndMaxCommonFoundTerm(title + ' ' + articleContent);
-                            if (score > 0) {
-                                workerAddedLinks.add(link);
-                                console.log("+++++++++++++++++++++++++++++++++++++++++++++++++++++++");
-                                console.log(`++++++ ADDED ARTICLE!!! - ${link}`);
-                                console.log("+++++++++++++++++++++++++++++++++++++++++++++++++++++++");
-                                results[mostCommonTerm].add({
-                                    title: title,
-                                    link: link,
-                                    summary: STRING_PLACEHOLDER,
-                                    score: score,
-                                    term: mostCommonTerm,
-                                    fullText: articleContent,
-                                    date: dateText
-                                });
+                        // Double-check if the link has been added
+                        if (!workerAddedLinks.has(link)) {
+                            if (isRecent(dateText)) {
+                                let articleContent;
+                                try {
+                                    articleContent = await extractArticleText(link);
+                                } catch (error) {
+                                    console.error(`Error extracting text from ${link}: ${error.message}`);
+                                    continue;
+                                }
+
+                                const { score, mostCommonTerm } = relevanceScoreAndMaxCommonFoundTerm(title + ' ' + articleContent);
+
+                                if (score > 0) {
+                                    workerAddedLinks.add(link);
+
+                                    console.log(`Added article! - ${link}`);
+
+                                    results[mostCommonTerm].add({
+                                        title: title,
+                                        link: link,
+                                        summary: STRING_PLACEHOLDER,
+                                        score: score,
+                                        term: mostCommonTerm,
+                                        fullText: articleContent,
+                                        date: dateText
+                                    });
+                                }
+                                if (score == 0) {
+                                    console.log("ZERO SCORE");
+                                }
                             }
                         }
                     } catch (error) {
@@ -646,13 +651,16 @@ async function crawlWebsite(url, terms, workerAddedLinks) {
             }
         }
     }
+
     Object.keys(results).forEach(term => {
         results[term] = Array.from(results[term]);
     });
+
     return results;
 }
 
-/** Splits an array into a specified number of chunks.
+/**
+ * Splits an array into a specified number of chunks.
  *
  * @param {Array} array - The array to be split into chunks.
  * @param {number} numChunks - The number of chunks to create.
@@ -667,22 +675,20 @@ const chunkArray = (array, numChunks) => {
     return chunks;
 };
 
-/** Checks if the given `fullLink` is a valid URL for the `baseUrl` website.
- *
- * @param {string} baseUrl - The base URL of the website.
- * @param {string} fullLink - The full URL to be validated.
- * @return {boolean} Returns `true` if the `fullLink` is a valid URL for the `baseUrl` website, `false` otherwise.  */
 function isWebsiteValid(baseUrl, fullLink) {
     try {
         const baseHostname = new URL(baseUrl).hostname;
         const linkHostname = new URL(fullLink).hostname;
+
         if (baseHostname === linkHostname) {
             return false;
         }
+
         if (linkHostname.endsWith('.' + baseHostname) ||
             linkHostname.includes(baseHostname)) {
             return true;
         }
+
         return false;
     } catch (error) {
         console.warn(`Error comparing URLs: ${baseUrl} and ${fullLink}`);
@@ -700,32 +706,40 @@ function shuffleArray(array) {
     return array;
 }
 
-/** Crawls multiple websites for articles related to specified terms.
+/**
+ * Crawls multiple websites for articles related to specified terms.
  *
  * @return {Promise<Object>} An object containing arrays of articles for each term. */
 const crawlWebsites = async (cycleEndTime) => {
     console.log("Starting crawlWebsites function...");
     let allResults = {};
     for (const term of terms) allResults[term] = [];
+
     const shuffledWebsites = shuffleArray([...websites]);
     const maxConcurrentWorkers = os.cpus().length;
-    const websiteChunks = chunkArray(shuffledWebsites, maxConcurrentWorkers);
-    console.log(`Creating ${maxConcurrentWorkers} worker(s)...`);
+    const websiteChunks = chunkArray(shuffledWebsites, Math.ceil(shuffledWebsites.length / maxConcurrentWorkers));
+
+    console.log(`Creating ${websiteChunks.length} worker(s)...`);
     const workerPromises = websiteChunks.map(websiteChunk =>
         createWorker({ websites: websiteChunk, terms, cycleEndTime })
     );
+
     console.log("All workers created. Starting crawl...");
+
     const timeoutPromise = new Promise(resolve =>
         setTimeout(() => {
             console.log("Timeout reached. Collecting results...");
             resolve('timeout');
         }, cycleEndTime.getTime() - Date.now())
     );
+
     const raceResult = await Promise.race([
         Promise.all(workerPromises),
         timeoutPromise
     ]);
+
     console.log(`Race completed. Result: ${raceResult === 'timeout' ? 'Timeout' : 'All workers finished'}`);
+
     console.log("Collecting results from all workers...");
     for (const workerPromise of workerPromises) {
         try {
@@ -740,27 +754,29 @@ const crawlWebsites = async (cycleEndTime) => {
             console.error("Error retrieving worker results:", error);
         }
     }
+
     console.log("All results collected. Terminating workers...");
     for (const worker of workers) {
         worker.terminate();
     }
     workers = []; // Clear the workers array
+
     console.log("Crawling process completed.");
     return allResults;
 };
 
-/** Removes redundant articles from the given results object.
+/**
+ * Removes redundant articles from the given results object.
  *
  * @param {Object} results - An object containing articles grouped by terms.
  * @return {Promise<void>} A promise that resolves when the redundant articles have been removed.   */
 const removeRedundantArticles = async (results) => {
-    console.log('Removing redundant articles...');
     for (const term of terms) {
         const articles = results[term];
         const uniqueArticles = [];
-        const toRemove = new Set();
+        const toRemove = new Set(); // Keep track of indices to remove
         for (let i = 0; i < articles.length; i++) {
-            if (toRemove.has(i)) continue;
+            if (toRemove.has(i)) continue; // Skip if already marked for removal
             let unique = true;
             for (let j = 0; j < articles.length; j++) {
                 if (i !== j && !toRemove.has(j)) {
@@ -777,7 +793,7 @@ const removeRedundantArticles = async (results) => {
                         } else {
                             toRemove.add(j);
                         }
-                        break;
+                        break; // Stop inner loop as we found a duplicate
                     }
                 }
             }
@@ -786,37 +802,23 @@ const removeRedundantArticles = async (results) => {
         const filteredArticles = articles.filter((_, index) => !toRemove.has(index));
         results[term] = filteredArticles;
     }
+
     return results;
 }
 
-/** Determines if a given text is relevant based on the frequency of terms.
- *
- * @param {string} textToAnalyze - The text to analyze.
- * @param {Array<string>} terms - The terms to check for in the text.
- * @return {boolean} - Returns true if the total frequency of terms in the text is greater than or equal to 2, false otherwise. */
-function isTextRelevant(textToAnalyze, terms) {
-    const textLower = textToAnalyze.toLowerCase();
-    let totalFrequency = 0;
-    for (let term of terms) {
-        const regex = new RegExp(`\\b${term}\\b`, 'g');
-        const matches = textLower.match(regex);
-        const count = matches ? matches.length : 0;
-        totalFrequency += count;
-        if (totalFrequency >= 2) break;
-    }
-    return totalFrequency >= 2;
-}
-
-
-/** Reorganizes the articles in the results object by term, removing irrelevant articles based on specified criteria.
+/**
+ * Arranges the articles from the given results object based on their terms.
  *
  * @param {Object} results - An object containing articles grouped by terms.
- * @return {Object} An object with articles reorganized by term after removing irrelevant articles. */
+ * @return {Promise<Object>} - A promise that resolves to an object with articles reorganized by term */
 async function removeIrrelevantArticles(results) {
     let reorganizedResults = {};
+
+    // Initialize reorganizedResults with all terms from the original results
     for (const term of Object.keys(results)) {
         reorganizedResults[term] = [];
     }
+
     for (const [term, articles] of Object.entries(results)) {
         for (let article of articles) {
             if (article.fullText === EMPTY_STRING) {
@@ -824,24 +826,28 @@ async function removeIrrelevantArticles(results) {
                     article.fullText = await extractArticleText(article.link);
                 } catch (error) {
                     console.error(`Error extracting text from ${article.link}: ${error.message}`);
-                    continue;
+                    continue; // Skip this article if text extraction fails
                 }
             }
+
             let title = article.title;
             let textToAnalyze = title.concat(' ', article.fullText);
+
             let mainTopics = getMainTopics(textToAnalyze, LANGUAGE, SENSITIVITY);
-            if ((!mainTopics.some(topic => terms.includes(topic.toLowerCase())) || !isTextRelevant(textToAnalyze, terms)) 
-                && article.score === 1) {
+            if (!mainTopics.some(topic => terms.includes(topic.toLowerCase())) && article.score === 1) {
                 console.log(`Irrelevant article discarded: ${article.link}`);
-                continue;
+                continue; // Skip this article if it's not relevant
             }
+
             reorganizedResults[term].push(article);
         }
     }
+
     return reorganizedResults;
 }
 
-/** Saves the results to a JSON file.
+/**
+ * Saves the results to a JSON file.
  *
  * @param {Object} results - The results to be saved.
  * @return {Promise<boolean>} - A promise that resolves to a boolean indicating if the crawling is complete.    */
@@ -853,6 +859,7 @@ const saveResults = async (results, emailTime) => {
     let numTopArticles = 0;
     let mostCommonTerm = MOST_COMMON_TERM;
     let link = EMPTY_STRING, summary = EMPTY_STRING;
+
     const thisIsTheTime = closeToEmailingTime(emailTime);
     if (thisIsTheTime) {
         results = await removeIrrelevantArticles(results);
@@ -865,7 +872,7 @@ const saveResults = async (results, emailTime) => {
                 ({ url: link, response: summary } = await summarizeText(
                     topArticles[i].link,
                     topArticles[i].fullText,
-                    numTopArticles,
+                    topArticles[i].term,
                     topArticles[i].title));
                 topArticles[i].summary = summary;
                 topArticles[i].link = link !== EMPTY_STRING ? link : topArticles[i].link;
@@ -873,30 +880,38 @@ const saveResults = async (results, emailTime) => {
         }
         mostCommonTerm = mostCommonTerms(results);
     }
+
     const resultsWithTop = { results, topArticles, mostCommonTerm };
+
     fs.writeFileSync(resultsPath, JSON.stringify(resultsWithTop, null, 2));
     if (thisIsTheTime && !(FALSE_ALARM)) {
         fs.writeFileSync(flagPath, CRAWL_COMPLETE_TEXT);
         console.log(CRAWL_COMPLETE_TEXT)
     }
+
     return thisIsTheTime;
 };
 
-/** Loads the previous results from the `crawled_results.json` file.
+/**
+ * Loads the previous results from the `crawled_results.json` file.
  * @return {Object} The previous results, or an empty object if the file doesn't exist or cannot be parsed. */
 const loadPreviousResults = () => {
     console.log("Loading previous results...");
     const resultsPath = path.join(__dirname, CRAWLED_RESULTS_JSON);
+
     try {
         if (fs.existsSync(resultsPath)) {
             const fileContent = fs.readFileSync(resultsPath, 'utf8');
             const previousResults = JSON.parse(fileContent);
+
             if (!previousResults.results) {
                 throw new Error('Invalid results structure');
             }
+
             for (const articles of Object.values(previousResults.results)) {
                 articles.forEach(article => addedLinks.add(article.link));
             }
+
             return previousResults.results;
         } else {
             throw new Error('Results file does not exist');
@@ -909,7 +924,8 @@ const loadPreviousResults = () => {
     }
 };
 
-/** Extracts the top articles from the given results.
+/**
+ * Extracts the top articles from the given results.
  *
  * @param {Object} results - An object containing arrays of articles for each term.
  * @return {Array} An array of the top articles, with a maximum length determined by the square root of the total number of articles.   */
@@ -920,7 +936,9 @@ const extractTopArticles = (results) => {
         allArticles.push(...articles);
     }
     allArticles.sort((a, b) => b.score - a.score);
+
     let potentialReturn = allArticles.slice(0, Math.floor(Math.sqrt(allArticles.length)));
+
     let totalScore = 0;
     for (let i = 0; i < allArticles.length; i++) totalScore += allArticles[i].score;
     let threshold = Math.floor(totalScore * 0.8); // Get top articles whose total is at least 80% of total score
@@ -933,32 +951,41 @@ const extractTopArticles = (results) => {
     return potentialReturn.length < topArticles.length ? potentialReturn : topArticles;
 };
 
-/** Returns a string of the most common terms in the given object of articles, sorted by frequency and score.
+/**
+ * Returns a string of the most common terms in the given object of articles, sorted by frequency and score.
  *
  * @param {Object} allResults - An object containing arrays of articles for each term.
  * @return {string} A string of the most common terms, separated by '/' - DISCLAIMER: NORMALLY IT'S A SINGLE TERM        */
 function mostCommonTerms(allResults) {
     const termCount = {};
+
     for (const [term, articles] of Object.entries(allResults)) {
         termCount[term] = articles.length;
     }
+
     const totalArticles = Object.values(allResults).flat().length;
+
     if (totalArticles === 1) {
         return Object.keys(termCount)[0];
     }
+
     const sortedTerms = Object.entries(termCount).sort((a, b) => b[1] - a[1]);
     const highestFrequency = sortedTerms[0][1];
     let topTerms = sortedTerms.filter(term => term[1] === highestFrequency);
+
     const numOfTopics = Math.floor(Math.cbrt(totalArticles));
+
     topTerms = topTerms.sort((a, b) => {
         const aMaxScore = Math.max(...allResults[a[0]].map(article => article.score));
         const bMaxScore = Math.max(...allResults[b[0]].map(article => article.score));
         return bMaxScore - aMaxScore;
     }).slice(0, numOfTopics).map(term => term[0]);
+
     return topTerms.join('/');
 }
 
-/** Loads the results from a JSON file.
+/**
+ * Loads the results from a JSON file.
  *
  * @return {Object} The loaded results, or null if the file doesn't exist.  */
 const loadResults = () => {
@@ -970,21 +997,20 @@ const loadResults = () => {
     return null;
 };
 
-/** Sends an email with the latest news based on the results stored in the JSON file.
- *
- * @param {Date} emailTime - The time at which the email should be sent.
- * @return {Promise<void>} - A promise that resolves when the email is sent successfully.   */
 const sendEmail = async (emailTime) => {
     console.log("Sending emails...");
+
     const now = new Date();
     const results = loadResults();
     const sender = config.email.sender;
     const recipients = config.email.recipients;
     const totalLinks = Object.values(results.results).flat().length ?? 0;
     const sortedResults = Object.entries(results.results).sort((a, b) => b[1].length - a[1].length) ?? [];
+
     let mostFrequentTerm = results.mostCommonTerm ?? EMPTY_STRING;
     const subject = `Noticias Frescas ${todayDate()} - ${mostFrequentTerm}`;
     let topArticles = results.topArticles ?? [];
+
     //Edge case of topArticles not extracted yet
     if (totalLinks > 0) {
         if (topArticles == []) {
@@ -994,6 +1020,7 @@ const sendEmail = async (emailTime) => {
             mostFrequentTerm = mostCommonTerms(results.results);
         }
     }
+
     //Edge case of summaries not being present
     for (let i = 0; i < topArticles.length; i++) {
         let link = EMPTY_STRING, summary = EMPTY_STRING;
@@ -1002,25 +1029,30 @@ const sendEmail = async (emailTime) => {
             ({ url: link, response: summary } = await summarizeText(
                 topArticles[i].link,
                 topArticles[i].fullText,
-                topArticles.length,
+                topArticles[i].term,
                 topArticles[i].title
             ));
             topArticles[i].summary = summary;
             topArticles[i].link = link !== EMPTY_STRING ? link : topArticles[i].link;
         }
     }
+
+
     while (now < new Date(emailTime.getTime() + MINUTES_TO_CLOSE)) {
         console.log("Waiting...");
-        await sleep(30000);
+        await new Promise((r) => setTimeout(r, 90000));
         now.setTime(Date.now());
     }
+
     let topArticleLinks = [];
+
     let emailBody = `
         <div style="text-align: center;">
-            <img src="https://github.com/V3RNE42/NEWS_CRAWLER/blob/main/assets/fresh_news.png?raw=true" style="max-width: 25%; height: auto; display: block; margin-left: auto; margin-right: auto;" alt="Noticias_Frescas_LOGO">
+            <img src="https://raw.githubusercontent.com/V3RNE42/NEWS_CRAWLER/puppeteer_variant/assets/fresh_news.png" style="max-width: 25%; height: auto; display: block; margin-left: auto; margin-right: auto;" alt="Noticias_Frescas_LOGO">
         </div>
         <br>
         Estas son las ${totalLinks} noticias frescas de ${todayDate()} :<br><br>`;
+
     if (topArticles.length) {
         emailBody += "Noticias Destacadas:<br><br>";
         topArticles.forEach((article) => {
@@ -1030,7 +1062,9 @@ const sendEmail = async (emailTime) => {
     } else {
         emailBody += `<b>NO encontré noticias destacadas hoy</b><br>`;
     }
+
     emailBody += "<br>"
+
     sortedResults.forEach(([term, articles]) => {
         if (articles.length) {
             emailBody += `<b>${term.toUpperCase()} - ${articles.length} link${articles.length === 1 ? EMPTY_STRING : "s"}</b><br>`;
@@ -1041,7 +1075,9 @@ const sendEmail = async (emailTime) => {
             emailBody += "<br><br>";
         }
     });
+
     emailBody += "<br>¡Saludos!";
+
     const transporter = nodemailer.createTransport({
         host: config.email.smtp_server,
         port: config.email.smtp_port,
@@ -1051,15 +1087,18 @@ const sendEmail = async (emailTime) => {
             pass: config.email.smtp_pass,
         },
     });
+
     const mailOptions = {
         from: sender,
         to: recipients.join(", "),
         subject: subject,
         html: emailBody,
     };
+
     try {
         await transporter.sendMail(mailOptions);
         console.log("Emails sent successfully!");
+
         fs.unlinkSync(path.join(__dirname, CRAWL_COMPLETE_FLAG));
         fs.unlinkSync(path.join(__dirname, CRAWLED_RESULTS_JSON));
         console.log("Cleanup complete: Deleted flag and results files.");
@@ -1068,56 +1107,62 @@ const sendEmail = async (emailTime) => {
     }
 };
 
-/** Asynchronous function that controls the main process of the web crawler.
- *
- * @return {Promise<void>} Promise that resolves when the main process is completed */
+
 const main = async () => {
     console.log("Starting main process...");
     let resultados;
     let emailTime = new Date();
+
     while (!fs.existsSync(path.join(__dirname, CRAWL_COMPLETE_FLAG))) {
         console.log("Starting new crawling cycle...");
         globalStopFlag = false; // Reset the flag at the start of each cycle
+
         const now = new Date();
         emailTime = parseTime(config.time.email);
-        const chunkedWebsitesCount = Math.floor(websites.length/os.cpus().length);
-        const crawlCycleEndTime = new Date(now.getTime() + chunkedWebsitesCount * terms.length * 150);
+        console.log('Current emailEndTime:', emailTime);
+
+        const crawlCycleEndTime = new Date(now.getTime() + 15 * 60 * 1000); // 1/4 hour from now
         const cycleEndTime = emailTime < crawlCycleEndTime ? emailTime : crawlCycleEndTime;
+
         console.log(`Cycle end time set to: ${cycleEndTime}`);
+
         resultados = loadPreviousResults();
         console.log("Previous results loaded.");
+
         const results = await crawlWebsites(cycleEndTime);
         console.log("Crawling completed. Processing results...");
+
         for (const [term, articles] of Object.entries(results)) {
             if (!resultados[term]) resultados[term] = [];
             resultados[term].push(...articles);
         }
-        console.log('++++++++++++++++++++++++++++++++++++++');
-        console.log(`++++++++++++++ Current articles: ${Object.values(resultados).flat().length} ++`);
-        console.log('++++++++++++++++++++++++++++++++++++++');
+
         await saveResults(resultados, emailTime);
         console.log("Results saved.");
+
         if (globalStopFlag) {
             console.log("Stopping main loop due to global stop flag");
             break;
         }
+
         console.log("Cycle completed. Checking if it's time to send email...");
         if (closeToEmailingTime(emailTime)) {
             console.log("It's time to send email. Breaking the loop.");
             break;
         }
+
         console.log("Waiting before starting next cycle...");
-        await sleep(30000); // 30 seconds delay
+        await new Promise(resolve => setTimeout(resolve, 60000)); // 1 minute delay
     }
+
     if (!fs.existsSync(path.join(__dirname, CRAWL_COMPLETE_FLAG)) && !(FALSE_ALARM)) {
         fs.writeFileSync(path.join(__dirname, CRAWL_COMPLETE_FLAG), CRAWL_COMPLETE_TEXT);
         console.log("Crawl complete flag created.");
     }
+
     console.log("Preparing to send email...");
     await sendEmail(emailTime);
     console.log("Email sent. Main process completed.");
-    console.log("Waiting before starting next cycle...");
-    await sleep(30000); // 30 seconds delay
 };
 
 if (isMainThread) {
@@ -1125,6 +1170,7 @@ if (isMainThread) {
     (async () => {
         await assignBrowserPath();
         console.log(`Webcrawler scheduled to run indefinitely. Emails will be sent daily at ${config.time.email}`);
+
         while (true) {
             console.log(`Running the web crawler at ${new Date().toISOString()}...`);
             await main()
@@ -1137,8 +1183,10 @@ if (isMainThread) {
     (async () => {
         const { websites, terms, addedLinks: initialAddedLinks, cycleEndTime } = workerData;
         let workerAddedLinks = new Set(initialAddedLinks);
+
         const results = {};
         for (const term of terms) results[term] = new Set();
+
         for (const url of websites) {
             if (Date.now() >= cycleEndTime.getTime()) {
                 console.log(`Worker reached cycle end time, stopping.`);
@@ -1166,6 +1214,7 @@ if (isMainThread) {
                 console.error(`Error crawling ${url}: ${error}`);
             }
         }
+
         // Send final result
         parentPort.postMessage({
             type: 'result',
