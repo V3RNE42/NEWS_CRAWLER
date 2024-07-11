@@ -766,7 +766,7 @@ function createWorker(workerData) {
  * @return {Array} An array of RSS feed URLs extracted from the provided URL.           */
 async function detectRSS(url, baseUrl, rssFeeds = new Set()) {
     try {
-        const data = await fetchWithRetry(url, MAX_RETRIES_PER_FETCH);
+        const data = await fetchWithRetry(url);
         const $ = cheerio.load(data);
 
         // Añadir los feeds RSS encontrados a la lista
