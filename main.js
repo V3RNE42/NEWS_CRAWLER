@@ -872,7 +872,7 @@ const saveResults = async (results, emailTime) => {
                 ({ url: link, response: summary } = await summarizeText(
                     topArticles[i].link,
                     topArticles[i].fullText,
-                    topArticles[i].term,
+                    numTopArticles,
                     topArticles[i].title));
                 topArticles[i].summary = summary;
                 topArticles[i].link = link !== EMPTY_STRING ? link : topArticles[i].link;
@@ -1029,7 +1029,7 @@ const sendEmail = async (emailTime) => {
             ({ url: link, response: summary } = await summarizeText(
                 topArticles[i].link,
                 topArticles[i].fullText,
-                topArticles[i].term,
+                topArticles.length,
                 topArticles[i].title
             ));
             topArticles[i].summary = summary;
