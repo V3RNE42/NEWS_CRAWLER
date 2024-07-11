@@ -3,9 +3,7 @@ const nodemailer = require("nodemailer");
 const fs = require("fs");
 const path = require("path");
 const cheerio = require('cheerio');
-const RSSParser = require('rss-parser');
 const { decode } = require('html-entities');
-const { DOMParser } = require('xmldom');
 const { XMLParser } = require('fast-xml-parser');
 const axios = require("axios");
 const { OpenAI } = require("openai");
@@ -40,8 +38,6 @@ const CRAWLED_RESULTS_JSON = "crawled_results.json";
 const CRAWL_COMPLETE_FLAG = "crawl_complete.flag";
 const CRAWL_COMPLETE_TEXT = "Crawling completed!";
 const MOST_COMMON_TERM = "Most_Common_Term";
-
-const parser = new RSSParser();
 
 let addedLinks = new Set();
 let workers = [];
@@ -811,7 +807,7 @@ async function scrapeRSSFeed(feedUrl, workerAddedLinks) {
     terms.forEach(term => results[term] = []);
 
     try {
-        const feedData = await fetchWithRetry(feedUrl);
+        const feedData = await fetchWithRetry(feedUrl, MAX_RETRIES_PER_FETCH);
         const sanitizedData = await sanitizeXML(feedData);
 
         const options = {
