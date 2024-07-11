@@ -359,13 +359,20 @@ function isRecent(dateText) {
         return differenceInHours(now, date) < 24;
     }
 
+    const months = { Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5, Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11 };
+
+    // Handle "dd MMM yyyy HH:mm:ss +ZZZZ" format
+    const rfc822Match = dateText.match(/(\d{1,2}) ([A-Za-z]{3}) (\d{4}) (\d{2}:\d{2}:\d{2}) ([+-]\d{4})/);
+    if (rfc822Match) {
+        const [_, day, month, year, time, offset] = rfc822Match;
+        date = new Date(`${year}-${(months[month] + 1).toString().padStart(2, '0')}-${day.padStart(2, '0')}T${time}${offset}`);
+        return differenceInHours(now, date) < 24;
+    }
+
     // Try parsing as RFC 2822
     const rfc2822Match = dateText.match(/[A-Za-z]{3}, (\d{2}) ([A-Za-z]{3}) (\d{4}) (\d{2}:\d{2}:\d{2}) ([+-]\d{4}|GMT)/);
     if (rfc2822Match) {
         const [_, day, monthStr, year, time, offset] = rfc2822Match;
-        const months = {
-            Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5, Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11
-        };
         const month = months[monthStr];
         const combinedDate = `${year}-${month + 1}-${day}T${time}`;
         date = new Date(combinedDate);
