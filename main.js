@@ -142,7 +142,7 @@ async function extractArticleText(url) {
 const cleanText = (text) => {
     text = sanitizeHtml(text, { allowedTags: [], allowedAttributes: [] });
 
-    let patterns = [/\n\n/g,/\t\t/g,/  /g,/<[^>]*>/g];
+    let patterns = [/\n\n/g,/\t\t/g,/<[^>]*>/g,/  /g];
 
     for (let pattern of patterns) {
         text.replace(pattern, ' ');
