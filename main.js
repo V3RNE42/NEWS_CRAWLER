@@ -1096,7 +1096,7 @@ const removeRedundantArticles = async (results) => {
                         LANGUAGE,
                         SIMILARITY_THRESHOLD
                     );
-                    if (sameNews) {
+                    if (sameNews || (articles[i].link == articles[j].link)) {
                         unique = false;
                         if (articles[i].score < articles[j].score) {
                             toRemove.add(i);
