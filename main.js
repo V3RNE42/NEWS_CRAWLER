@@ -142,18 +142,13 @@ async function extractArticleText(url) {
 const cleanText = (text) => {
     text = sanitizeHtml(text, { allowedTags: [], allowedAttributes: [] });
 
-    while (text.includes("\n\n")) {
-        text = text.replace(/\n\n/g, '\n');
-    }
-    while (text.includes('  ')) {
-        text = text.replace(/'  '/g, ' ');
+    let patterns = [/\n\n/g,/\t\t/g,/  /g,/<[^>]*>/g];
+
+    for (let pattern of patterns) {
+        text.replace(pattern, ' ');
     }
 
-    while (text.includes("\t\t")) {
-        text = text.replace(/\t\t/g, '\t');
-    }
-
-    return text.replace(/<[^>]*>/g, ' ').trim();
+    return text.trim();
 }
 
 async function getChunkedOpenAIResponse(text, topic, maxTokens) {
