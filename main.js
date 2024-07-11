@@ -806,6 +806,16 @@ const removeRedundantArticles = async (results) => {
     return results;
 }
 
+function isTextRelevant(text) {
+    let mentions = 0;
+    for (const term of terms) {
+        const regex = new RegExp(term, 'gi');
+        const matches = text.match(regex) || [];
+        mentions += matches.length;
+    }
+    return mentions > 1;
+}
+
 /**
  * Arranges the articles from the given results object based on their terms.
  *
@@ -834,7 +844,8 @@ async function removeIrrelevantArticles(results) {
             let textToAnalyze = title.concat(' ', article.fullText);
 
             let mainTopics = getMainTopics(textToAnalyze, LANGUAGE, SENSITIVITY);
-            if (!mainTopics.some(topic => terms.includes(topic.toLowerCase())) && article.score === 1) {
+            if ((!mainTopics.some(topic => terms.includes(topic.toLowerCase())) || !isTextRelevant(textToAnalyze))
+                    && article.score === 1) {
                 console.log(`Irrelevant article discarded: ${article.link}`);
                 continue; // Skip this article if it's not relevant
             }
