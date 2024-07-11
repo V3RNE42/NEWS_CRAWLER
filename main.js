@@ -133,8 +133,15 @@ async function extractArticleText(url) {
 
         return cleanText(articleText);
     } catch (error) {
-        console.error(`Error extracting text from ${url}: ${error.message}`);
-        return EMPTY_STRING;
+        try {
+            const response = await fetch(url);
+            const html = await response.text();
+            const $ = cheerio.load(html);
+            return cleanText($.html());
+        } catch (error) {            
+            console.error(`Error extracting text from ${url}: ${error.message}`);
+            return EMPTY_STRING;
+        }
     }
 }
 
