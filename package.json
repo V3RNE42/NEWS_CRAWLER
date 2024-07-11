@@ -21,7 +21,9 @@
     "axios": "^1.7.2",
     "cheerio": "^1.0.0-rc.12",
     "date-fns": "^3.6.0",
+    "fast-xml-parser": "^4.4.0",
     "fs": "^0.0.1-security",
+    "html-entities": "^2.5.2",
     "limiter": "^2.1.0",
     "natural": "^7.0.6",
     "node-fetch": "^3.3.2",
@@ -29,6 +31,8 @@
     "openai": "^4.0.0",
     "path": "^0.12.7",
     "puppeteer": "^22.11.2",
-    "sanitize-html": "^2.13.0"
+    "rss-parser": "^3.13.0",
+    "sanitize-html": "^2.13.0",
+    "xmldom": "^0.6.0"
   }
 }

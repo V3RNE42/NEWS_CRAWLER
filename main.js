@@ -3,13 +3,17 @@ const nodemailer = require("nodemailer");
 const fs = require("fs");
 const path = require("path");
 const cheerio = require('cheerio');
+const RSSParser = require('rss-parser');
+const { decode } = require('html-entities');
+const { DOMParser } = require('xmldom');
+const { XMLParser } = require('fast-xml-parser');
 const axios = require("axios");
 const { OpenAI } = require("openai");
 const puppeteer = require('puppeteer');
 const { Worker, isMainThread, parentPort, workerData } = require('worker_threads');
 const { RateLimiter } = require('limiter');
 const os = require('os');
-const { parse, differenceInHours } = require('date-fns');
+const { parseISO, parse, differenceInHours, isValid, subMinutes } = require('date-fns');
 const { es, enUS } = require('date-fns/locale');
 let { terms, websites } = require("./terminos");
 const config = require("./config.json");
@@ -36,6 +40,8 @@ const CRAWLED_RESULTS_JSON = "crawled_results.json";
 const CRAWL_COMPLETE_FLAG = "crawl_complete.flag";
 const CRAWL_COMPLETE_TEXT = "Crawling completed!";
 const MOST_COMMON_TERM = "Most_Common_Term";
+
+const parser = new RSSParser();
 
 let addedLinks = new Set();
 let workers = [];
@@ -337,18 +343,168 @@ const summarizeText = async (link, fullText, numberOfLinks, topic) => {
  *
  * @param {string} dateText - The date to be checked.
  * @return {boolean} Returns true if the date is recent, false otherwise.   */
-const isRecent = (dateText) => {
+function isRecent(dateText) {
     if (!dateText) return false;
-
     const now = new Date();
     let date;
 
-    // Handle relative time in both Spanish and English
-    const relativeMatchES = dateText.match(/hace (\d+) (minutos?|horas?|días?|semanas?|meses?)/i);
-    const relativeMatchEN = dateText.match(/(\d+) (minute|hour|day|week|month)s? ago/i);
+    // Check if the input is a Unix timestamp
+    if (/^\d+$/.test(dateText)) {
+        const timestamp = parseInt(dateText, 10);
+        if (timestamp > 0) {
+            date = new Date(timestamp * 1000);
+            return differenceInHours(now, date) < 24;
+        }
+    }
 
+    // Try parsing as ISO 8601 first
+    date = parseISO(dateText);
+    if (!isNaN(date)) {
+        return differenceInHours(now, date) < 24;
+    }
+
+    // Try parsing as RFC 2822
+    const rfc2822Match = dateText.match(/[A-Za-z]{3}, (\d{2}) ([A-Za-z]{3}) (\d{4}) (\d{2}:\d{2}:\d{2}) ([+-]\d{4}|GMT)/);
+    if (rfc2822Match) {
+        const [_, day, monthStr, year, time, offset] = rfc2822Match;
+        const months = {
+            Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5, Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11
+        };
+        const month = months[monthStr];
+        const combinedDate = `${year}-${month + 1}-${day}T${time}`;
+        date = new Date(combinedDate);
+
+        if (offset !== 'GMT') {
+            const offsetHours = parseInt(offset.slice(0, 3));
+            const offsetMinutes = parseInt(offset.slice(3));
+            const totalOffsetMinutes = offsetHours * 60 + (offsetHours < 0 ? -offsetMinutes : offsetMinutes);
+            date = subMinutes(date, totalOffsetMinutes);
+        }
+        return differenceInHours(now, date) < 24;
+    }
+
+    const offsetMap = {
+        'ACDT': 10.5, 'ACST': 9.5, 'ACT': -5, 'ACWST': 8.75, 'ADT': -3, 'AEDT': 11,
+        'AEST': 10, 'AET': 10, 'AFT': 4.5, 'AKDT': -8, 'AKST': -9, 'ALMT': 6,
+        'AMST': -3, 'AMT': -4, 'ANAT': 12, 'AQTT': 5, 'ART': -3, 'AST': -4,
+        'AWST': 8, 'AZOST': 0, 'AZOT': -1, 'AZT': 4, 'BDT': 8, 'BIOT': 6,
+        'BIT': -12, 'BOT': -4, 'BRST': -2, 'BRT': -3, 'BST': 1, 'BTT': 6,
+        'CAT': 2, 'CCT': 6.5, 'CDT': -5, 'CEST': 2, 'CET': 1, 'CHADT': 13.75,
+        'CHAST': 12.75, 'CHOT': 8, 'CHOST': 9, 'CHST': 10, 'CHUT': 10, 'CIST': -8,
+        'CIT': 8, 'CKT': -10, 'CLST': -3, 'CLT': -4, 'COST': -4, 'COT': -5,
+        'CST': -6, 'CT': 8, 'CVT': -1, 'CWST': 8.75, 'CXT': 7, 'DAVT': 7,
+        'DDUT': 10, 'DFT': 1, 'EASST': -5, 'EAST': -6, 'EAT': 3, 'ECT': -5,
+        'EDT': -4, 'EEST': 3, 'EET': 2, 'EGST': 0, 'EGT': -1, 'EST': -5,
+        'ET': -5, 'FET': 3, 'FJT': 12, 'FKST': -3, 'FKT': -4, 'FNT': -2,
+        'GALT': -6, 'GAMT': -9, 'GET': 4, 'GFT': -3, 'GILT': 12, 'GMT': 0,
+        'GST': 4, 'GYT': -4, 'HDT': -9, 'HAEC': 2, 'HST': -10, 'HKT': 8,
+        'HMT': 5, 'HOVT': 7, 'ICT': 7, 'IDLW': -12, 'IDT': 3, 'IOT': 6,
+        'IRDT': 4.5, 'IRKT': 8, 'IRST': 3.5, 'IST': 5.5, 'JST': 9, 'KALT': 2,
+        'KGT': 6, 'KOST': 11, 'KRAT': 7, 'KST': 9, 'LHST': 10.5, 'LINT': 14,
+        'MAGT': 12, 'MART': -9.5, 'MAWT': 5, 'MDT': -6, 'MET': 1, 'MEST': 2,
+        'MHT': 12, 'MIST': 11, 'MIT': -9.5, 'MMT': 6.5, 'MSK': 3, 'MST': -7,
+        'MUT': 4, 'MVT': 5, 'MYT': 8, 'NCT': 11, 'NDT': -2.5, 'NFT': 11,
+        'NOVT': 7, 'NPT': 5.75, 'NST': -3.5, 'NT': -3.5, 'NUT': -11, 'NZDT': 13,
+        'NZST': 12, 'OMST': 6, 'ORAT': 5, 'PDT': -7, 'PET': -5, 'PETT': 12,
+        'PGT': 10, 'PHOT': 13, 'PHT': 8, 'PKT': 5, 'PMDT': -2, 'PMST': -3,
+        'PONT': 11, 'PST': -8, 'PWT': 9, 'PYST': -3, 'PYT': -4, 'RET': 4,
+        'ROTT': -3, 'SAKT': 11, 'SAMT': 4, 'SAST': 2, 'SBT': 11, 'SCT': 4,
+        'SDT': -10, 'SGT': 8, 'SLST': 5.5, 'SRET': 11, 'SRT': -3, 'SST': 8,
+        'SYOT': 3, 'TAHT': -10, 'THA': 7, 'TFT': 5, 'TJT': 5, 'TKT': 13,
+        'TLT': 9, 'TMT': 5, 'TRT': 3, 'TOT': 13, 'TVT': 12, 'ULAST': 9,
+        'ULAT': 8, 'USZ1': 2, 'UTC': 0, 'UYST': -2, 'UYT': -3, 'UZT': 5,
+        'VET': -4, 'VLAT': 10, 'VOLT': 4, 'VOST': 6, 'VUT': 11, 'WAKT': 12,
+        'WAST': 2, 'WAT': 1, 'WEST': 1, 'WET': 0, 'WIT': 7, 'WGST': -2,
+        'WGT': -3, 'WST': 8, 'YAKT': 9, 'YEKT': 5
+    };
+
+    // Handle "dd/MM/yyyy HH:mm:ss Z" format
+    let tzOffsetMatch = dateText.match(/(\d{2}\/\d{2}\/\d{4} \d{2}:\d{2}:\d{2}) ([+-]\d{2}:\d{2})/);
+    if (tzOffsetMatch) {
+        let [_, datePart, offset] = tzOffsetMatch;
+        date = parse(datePart, 'dd/MM/yyyy HH:mm:ss', new Date());
+        if (isValid(date)) {
+            let [hoursOffset, minutesOffset] = offset.split(':').map(Number);
+            let totalOffsetMinutes = hoursOffset * 60 + (hoursOffset < 0 ? -minutesOffset : minutesOffset);
+            date = subMinutes(date, totalOffsetMinutes);
+            return differenceInHours(now, date) < 24;
+        }
+    }
+
+    // TODO: find a way to also parse date: 10/07/2024 0:39:55 +02:00
+    let cosa = dateText.match(/(\d{2}\/\d{2}\/\d{4} \d{1}:\d{2}:\d{2}) ([+-]\d{2}:\d{2})/);
+    if (cosa) {
+        let [_, datePart, offset] = cosa;
+        date = parse(datePart, 'dd/MM/yyyy H:mm:ss', new Date());
+        if (isValid(date)) {
+            let [hoursOffset, minutesOffset] = offset.split(':').map(Number);
+            let totalOffsetMinutes = hoursOffset * 60 + (hoursOffset < 0 ? -minutesOffset : minutesOffset);
+            date = subMinutes(date, totalOffsetMinutes);
+            return differenceInHours(now, date) < 24;
+        }
+    }
+
+    // Handle "YYYY-MM-DD[TIMEZONE]HH:MM:SS" format
+    let tzAbbrMatch = dateText.match(/(\d{4}-\d{2}-\d{2})([A-Z]{3,5})(\d{2}:\d{2}:\d{2})/);
+    if (tzAbbrMatch) {
+        let [_, datePart, tz, timePart] = tzAbbrMatch;
+        let combinedDate = `${datePart}T${timePart}`;
+
+        let offset = offsetMap[tz];
+        if (offset !== undefined) {
+            date = parse(combinedDate, "yyyy-MM-dd'T'HH:mm:ss", new Date());
+            if (isValid(date)) {
+                let totalOffsetMinutes = offset * 60;
+                date = subMinutes(date, totalOffsetMinutes);
+                return differenceInHours(now, date) < 24;
+            }
+        }
+    }
+
+    // Handle "YYYY-MM-DD[TIMEZONE]HH:MM" format
+    let tzMatch = dateText.match(/(\d{4}-\d{2}-\d{2})([A-Z]{3,5})(\d{2}:\d{2})/);
+    if (tzMatch) {
+        let [_, datePart, tz, timePart] = tzMatch;
+        let combinedDate = `${datePart}T${timePart}`;
+
+        let offset = offsetMap[tz];
+        if (offset !== undefined) {
+            date = parse(combinedDate, "yyyy-MM-dd'T'HH:mm", new Date());
+            if (isValid(date)) {
+                let totalOffsetMinutes = offset * 60;
+                date = subMinutes(date, totalOffsetMinutes);
+                return differenceInHours(now, date) < 24;
+            }
+        }
+    }
+
+    // Handle "dd/MM/yyyy HH:mm" format
+    date = parse(dateText, 'dd/MM/yyyy HH:mm', new Date());
+    if (isValid(date)) {
+        return differenceInHours(now, date) < 24;
+    }
+
+    // Handle "dd-MM-yyyy HH:mm:ss" format
+    date = parse(dateText, 'dd-MM-yyyy HH:mm:ss', new Date());
+    if (isValid(date)) {
+        return differenceInHours(now, date) < 24;
+    }
+
+    // Handle preamble like "By Lucas Leiroz de Almeida, July 08, 2024"
+    let preambleMatch = dateText.match(/.*, (\w+ \d{2}, \d{4})/);
+    if (preambleMatch) {
+        let [_, datePart] = preambleMatch;
+        date = parse(datePart, 'MMMM dd, yyyy', new Date(), { locale: enUS });
+        if (isValid(date)) {
+            return differenceInHours(now, date) < 24;
+        }
+    }
+
+    // Handle relative dates
+    let relativeMatchES = dateText.match(/hace (\d+) (minutos?|horas?|días?|semanas?|meses?)/i);
+    let relativeMatchEN = dateText.match(/(\d+) (minute|hour|day|week|month)s? ago/i);
     if (relativeMatchES || relativeMatchEN) {
-        const [_, amount, unit] = relativeMatchES || relativeMatchEN;
+        let [_, amount, unit] = relativeMatchES || relativeMatchEN;
         date = new Date(now);
         switch (unit.toLowerCase()) {
             case 'minuto':
@@ -382,56 +538,71 @@ const isRecent = (dateText) => {
                 date.setMonth(date.getMonth() - parseInt(amount));
                 break;
         }
-    } else {
-        // Handle absolute dates (including Spanish, English, and European formats)
-        const formats = [
-            'dd/MM/yyyy',
-            'MM/dd/yyyy',
-            'dd-MM-yyyy',
-            'yyyy-MM-dd',
-            'd MMMM yyyy',
-            'MMMM d, yyyy',
-            'd MMM yyyy',
-            'MMM d, yyyy',
-            "d 'de' MMMM 'de' yyyy",
-            "d 'de' MMM'. de' yyyy"
-        ];
+        return differenceInHours(now, date) < 24;
+    }
 
-        for (const format of formats) {
-            // Try parsing with Spanish locale
-            date = parse(dateText, format, new Date(), { locale: es });
-            if (!isNaN(date)) break;
+    // Handle various date formats
+    let formats = [
+        'dd/MM/yyyy',
+        'MM/dd/yyyy',
+        'dd-MM-yyyy',
+        'yyyy-MM-dd',
+        'd MMMM yyyy',
+        'MMMM d, yyyy',
+        'd MMM yyyy',
+        'MMM d, yyyy',
+        "d 'de' MMMM 'de' yyyy",
+        "d 'de' MMM'.' 'de' yyyy",
+        'yyyy-MM-dd HH:mm:ss',
+        "EEEE d 'de' MMMM"
+    ];
 
-            // If Spanish fails, try English locale
-            date = parse(dateText, format, new Date(), { locale: enUS });
-            if (!isNaN(date)) break;
-        }
+    for (let format of formats) {
+        date = parse(dateText, format, new Date(), { locale: es });
+        if (isValid(date)) break;
+        date = parse(dateText, format, new Date(), { locale: enUS });
+        if (isValid(date)) break;
+    }
 
-        // If standard parsing fails, try custom parsing for abbreviated Spanish months
-        if (isNaN(date)) {
-            const spanishMonthAbbr = {
-                'ene': 0, 'feb': 1, 'mar': 2, 'abr': 3, 'may': 4, 'jun': 5,
-                'jul': 6, 'ago': 7, 'sept': 8, 'sep': 8, 'oct': 9, 'nov': 10, 'dic': 11
-            };
+    if (isValid(date)) {
+        return differenceInHours(now, date) < 24;
+    }
 
-            const match = dateText.match(/(\d{1,2}) de (\w{3,5})\. de (\d{4})/);
-            if (match) {
-                const [_, day, monthAbbr, year] = match;
-                const month = spanishMonthAbbr[monthAbbr.toLowerCase()];
-                if (month !== undefined) {
-                    date = new Date(parseInt(year), month, parseInt(day));
-                }
-            }
-        }
-
-        if (isNaN(date)) {
-            console.warn(`Could not parse date: ${dateText}`);
-            return false;
+    // Handle natural language dates like "Panamá, 09 de julio del 2024"
+    let spanishMonthAbbr = {
+        'ene': 0, 'feb': 1, 'mar': 2, 'abr': 3, 'may': 4, 'jun': 5,
+        'jul': 6, 'ago': 7, 'sept': 8, 'sep': 8, 'oct': 9, 'nov': 10, 'dic': 11
+    };
+    let match = dateText.match(/(\d{1,2})?\s*(?:de)?\s*(\w+)\.?\s*(?:de)?\s*(\d{4})?/i);
+    if (match) {
+        let [_, day, month, year] = match;
+        month = spanishMonthAbbr[month.toLowerCase().substring(0, 3)];
+        if (month !== undefined) {
+            year = year ? parseInt(year) : now.getFullYear();
+            day = day ? parseInt(day) : 1;
+            date = new Date(year, month, day);
+            return differenceInHours(now, date) < 24;
         }
     }
 
-    return differenceInHours(now, date) < 24;
-};
+    let nlMatch = dateText.match(/(\d{1,2})\s*de\s*(\w+)\s*del?\s*(\d{4})/i);
+    if (nlMatch) {
+        let [_, day, month, year] = nlMatch;
+        let spanishMonthFull = {
+            'enero': 0, 'febrero': 1, 'marzo': 2, 'abril': 3, 'mayo': 4, 'junio': 5,
+            'julio': 6, 'agosto': 7, 'septiembre': 8, 'octubre': 9, 'noviembre': 10, 'diciembre': 11
+        };
+        month = spanishMonthFull[month.toLowerCase()];
+        if (month !== undefined) {
+            date = new Date(parseInt(year), month, parseInt(day));
+            return differenceInHours(now, date) < 24;
+        }
+    }
+
+    console.warn(`Could not parse date: ${dateText}`);
+    return false;
+}
+
 
 async function fetchWithRetry(url, retries = 0, initialDelay = INITIAL_DEALY) {
     try {
@@ -449,7 +620,7 @@ async function fetchWithRetry(url, retries = 0, initialDelay = INITIAL_DEALY) {
         if (retries >= MAX_RETRIES_PER_FETCH) {
             throw new Error(`Failed to fetch ${url} after ${MAX_RETRIES_PER_FETCH} retries: ${error.message}`);
         }
-        const delay = initialDelay * Math.pow(2, retries);
+        const delay = initialDelay * Math.pow(3, retries);
         console.log(`Attempt ${retries + 1} failed for ${url}. Retrying in ${delay}ms...`);
         await new Promise(resolve => setTimeout(resolve, delay));
         return fetchWithRetry(url, retries + 1, delay);
@@ -568,85 +739,225 @@ function createWorker(workerData) {
     });
 }
 
+/** Asynchronously detects and retrieves RSS feeds from the provided URL.
+ *
+ * @param {string} url - The URL to fetch the RSS feed from.
+ * @return {Array} An array of RSS feed URLs extracted from the provided URL.           */
+async function detectRSS(url, baseUrl, rssFeeds = new Set()) {
+    try {
+        const data = await fetchWithRetry(url, MAX_RETRIES_PER_FETCH);
+        const $ = cheerio.load(data);
+
+        // Añadir los feeds RSS encontrados a la lista
+        $('link[type="application/rss+xml"], link[type="application/atom+xml"]').each((i, elem) => {
+            try {
+                const feedUrl = $(elem).attr('href');
+                const absoluteFeedUrl = new URL(feedUrl, baseUrl).href;
+                rssFeeds.add(absoluteFeedUrl);
+            } catch (err) {
+                console.error('Invalid URL:', $(elem).attr('href'), err.message);
+            }
+        });
+
+        // Buscar enlaces en la página que contengan "/rss/"
+        const subRSSLinks = $('a[href*="/rss/"]').map((i, elem) => $(elem).attr('href')).get();
+
+        for (const link of subRSSLinks) {
+            try {
+                const fullLink = new URL(link, baseUrl).href;
+                await detectRSS(fullLink, baseUrl, rssFeeds);
+            } catch (err) {
+                console.error('Invalid URL:', link, err.message);
+            }
+        }
+
+        return Array.from(rssFeeds);
+    } catch (error) {
+        console.error('Error fetching the URL:', error);
+        return Array.from(rssFeeds);
+    }
+}
+
+async function sanitizeXML(xml) {
+    // Reemplazar caracteres inválidos y decodificar entidades HTML
+    let sanitized = decode(xml)
+        // .replace(/&nbsp;/g, ' ')
+        // .replace(/&(?!#?[a-zA-Z0-9]+;)/g, '&amp;')  // Reemplazar entidades mal formadas
+        // .replace(/<\s*\/?\s*br\s*\/?\s*>/g, '<br/>') // Arreglar etiquetas br
+        // .replace(/<\s*\/?\s*p\s*\/?\s*>/g, '<p>') // Arreglar etiquetas p
+        // .replace(/<\s*\/?\s*img\s*\/?\s*>/g, '<img>'); // Arreglar etiquetas img
+
+    return sanitized;
+}
+
+/** Asynchronously scrapes an RSS feed from the provided URL, extracts relevant article information,
+ * and returns an array of articles.
+ *
+ * @param {string} feedUrl - The URL of the RSS feed to scrape.
+ * @return {Array} An array of articles with title, link, date, content, score, summary, and full text.         */
+async function scrapeRSSFeed(feedUrl) {
+    try {
+        const articles = [];
+        const feedData = await fetchWithRetry(feedUrl);
+        const sanitizedData = await sanitizeXML(feedData);
+
+        const options = {
+            ignoreAttributes: false,
+            attributeNamePrefix: "@_",
+            parseAttributeValue: true,
+        };
+
+        const parser = new XMLParser(options);
+        const jsonObj = parser.parse(sanitizedData);
+
+        if (!jsonObj.rss && !jsonObj.feed) {
+            throw new Error("Feed not recognized as RSS 1 or 2.");
+        }
+
+        const feed = jsonObj.rss ? jsonObj.rss.channel : jsonObj.feed;
+        const items = feed.item || feed.entry;
+
+        if (!items || items.length === 0) {
+            console.error('No items found in feed:', JSON.stringify(jsonObj, null, 2));
+            return articles;
+        }
+
+        for (const item of items) {
+            if (globalStopFlag) {
+                break;
+            }
+            articles.push({
+                title: item.title,
+                link: item.link,
+                date: item.pubDate || item.updated,
+                score: 0,
+                summary: STRING_PLACEHOLDER,
+                fullText: item.description || item.summary || item.content
+            });
+        }
+
+        return articles;
+    } catch (error) {
+        console.error('Error parsing RSS feed:', error);
+        return [];
+    }
+}
+
 async function crawlWebsite(url, terms, workerAddedLinks) {
     let results = {};
     terms.forEach(term => results[term] = new Set());
 
-    console.log(`Crawling ${url}...`);
+    /** Asynchronously searches for articles related to the given terms on the specified website.
+     * @param {Array<string>} terms - An array of terms to search for.
+     * @param {Set<string>} workerAddedLinks - A set of links that have already been added.
+     * @return {Promise<Object>} A promise that resolves to an object containing the search results.    */
+    async function searchLoop() {
+        for (const term of terms) {
+            if (globalStopFlag) {
+                console.log("Stopping crawl due to global stop flag");
+                return results;
+            }
 
-    for (const term of terms) {
-        if (globalStopFlag) {
-            console.log("Stopping crawl due to global stop flag");
-            return results;
-        }
+            try {
+                const searchUrl = `https://www.bing.com/search?q=${encodeURIComponent(term)}+site:${encodeURIComponent(url)}&filters=ex1%3a"ez5"`;
+                const html = await fetchWithRetry(searchUrl, MAX_RETRIES_PER_FETCH);
+                const $ = cheerio.load(html);
 
-        try {
-            const searchUrl = `https://www.bing.com/search?q=${encodeURIComponent(term)}+site:${encodeURIComponent(url)}&filters=ex1%3a"ez5"`;
-            const html = await fetchWithRetry(searchUrl, MAX_RETRIES_PER_FETCH);
-            const $ = cheerio.load(html);
+                const articleElements = $("li.b_algo");
 
-            const articleElements = $("li.b_algo");
+                for (let i = 0; i < articleElements.length && !globalStopFlag; i++) {
+                    const article = articleElements[i];
+                    const titleElement = $(article).find("h2");
+                    const linkElement = titleElement.find("a");
+                    const dateElement = $(article).find("span.news_dt");
 
-            for (let i = 0; i < articleElements.length && !globalStopFlag; i++) {
-                const article = articleElements[i];
-                const titleElement = $(article).find("h2");
-                const linkElement = titleElement.find("a");
-                const dateElement = $(article).find("span.news_dt");
+                    if (titleElement.length && linkElement.length && dateElement.length) {
+                        const title = titleElement.text().trim();
+                        const link = normalizeUrl(linkElement.attr("href"));
+                        const dateText = dateElement.text().trim();
 
-                if (titleElement.length && linkElement.length && dateElement.length) {
-                    const title = titleElement.text().trim();
-                    const link = normalizeUrl(linkElement.attr("href"));
-                    const dateText = dateElement.text().trim();
+                        if (!isWebsiteValid(url, link)) continue;
 
-                    if (!isWebsiteValid(url, link)) continue;
+                        try {
+                            // Double-check if the link has been added
+                            if (!workerAddedLinks.has(link)) {
+                                if (isRecent(dateText)) {
+                                    let articleContent;
+                                    try {
+                                        articleContent = await extractArticleText(link);
+                                    } catch (error) {
+                                        console.error(`Error extracting text from ${link}: ${error.message}`);
+                                        continue;
+                                    }
 
-                    try {
-                        // Double-check if the link has been added
-                        if (!workerAddedLinks.has(link)) {
-                            if (isRecent(dateText)) {
-                                let articleContent;
-                                try {
-                                    articleContent = await extractArticleText(link);
-                                } catch (error) {
-                                    console.error(`Error extracting text from ${link}: ${error.message}`);
-                                    continue;
-                                }
+                                    const { score, mostCommonTerm } = relevanceScoreAndMaxCommonFoundTerm(title + ' ' + articleContent);
 
-                                const { score, mostCommonTerm } = relevanceScoreAndMaxCommonFoundTerm(title + ' ' + articleContent);
+                                    if (score > 0) {
+                                        workerAddedLinks.add(link);
 
-                                if (score > 0) {
-                                    workerAddedLinks.add(link);
+                                        console.log(`Added article! - ${link}`);
 
-                                    console.log(`Added article! - ${link}`);
-
-                                    results[mostCommonTerm].add({
-                                        title: title,
-                                        link: link,
-                                        summary: STRING_PLACEHOLDER,
-                                        score: score,
-                                        term: mostCommonTerm,
-                                        fullText: articleContent,
-                                        date: dateText
-                                    });
-                                }
-                                if (score == 0) {
-                                    console.log("ZERO SCORE");
+                                        results[mostCommonTerm].add({
+                                            title: title,
+                                            link: link,
+                                            summary: STRING_PLACEHOLDER,
+                                            score: score,
+                                            term: mostCommonTerm,
+                                            fullText: articleContent,
+                                            date: dateText
+                                        });
+                                    }
+                                    if (score == 0) {
+                                        console.log("ZERO SCORE");
+                                    }
                                 }
                             }
+                        } catch (error) {
+                            console.error(`Error processing article ${link}: ${error.message}`);
                         }
-                    } catch (error) {
-                        console.error(`Error processing article ${link}: ${error.message}`);
                     }
                 }
-            }
-        } catch (error) {
-            console.error(`Error crawling ${url} for term ${term}: ${error.message}`);
-            if (error.response) {
-                console.error(`Status: ${error.response.status}, Data: ${JSON.stringify(error.response.data)}`);
+            } catch (error) {
+                console.error(`Error crawling ${url} for term ${term}: ${error.message}`);
+                if (error.response) {
+                    console.error(`Status: ${error.response.status}, Data: ${JSON.stringify(error.response.data)}`);
+                }
             }
         }
     }
 
+    console.log(`Crawling ${url}...`);
+
+    let rssFeeds = await detectRSS(url);
+    if (rssFeeds.length > 0) {
+        console.log(`RSS detected! for ${url}`);
+        try {
+            for (let feedUrl of rssFeeds) {
+                let articles = await scrapeRSSFeed(feedUrl);
+                if (articles.length == 0) throw new Error("Empty RSS-feed");
+                for (let i = 0; i < articles.length && globalStopFlag ; i++) {
+                    let article = articles[i];
+                    if (!workerAddedLinks.has(article.link)) {        
+                        article.title = cleanText(article.title)            ;
+                        article.fullText = cleanText(article.fullText);
+                        let { score, mostCommonTerm } = relevanceScoreAndMaxCommonFoundTerm(article.title + ' ' + article.fullText, terms);
+                        if (score > 0 && isRecent(article.date)) {
+                            workerAddedLinks.add(article.link);
+                            console.log(`RSS-feed Added article! - ${article.link}`);
+                            article.score = score;
+                            article.term = mostCommonTerm;
+                            results[mostCommonTerm].add(article);
+                        }
+                    }
+                }
+            }
+        } catch (error) {
+            console.log(`Error scraping RSS-feed of ${url}\nError: ${error.message}\nLet's continue with regular scraping`);
+            results = await searchLoop();
+        }
+    } else {
+        results = await searchLoop();
+    }
     Object.keys(results).forEach(term => {
         results[term] = Array.from(results[term]);
     });
@@ -712,9 +1023,9 @@ const crawlWebsites = async (cycleEndTime) => {
 
     const shuffledWebsites = shuffleArray([...websites]);
     const maxConcurrentWorkers = os.cpus().length;
-    const websiteChunks = chunkArray(shuffledWebsites, Math.ceil(shuffledWebsites.length / maxConcurrentWorkers));
+    const websiteChunks = chunkArray(shuffledWebsites, maxConcurrentWorkers);
 
-    console.log(`Creating ${websiteChunks.length} worker(s)...`);
+    console.log(`Creating ${maxConcurrentWorkers} worker(s)...`);
     const workerPromises = websiteChunks.map(websiteChunk =>
         createWorker({ websites: websiteChunk, terms, cycleEndTime })
     );
