@@ -627,13 +627,15 @@ async function fetchWithRetry(url, retries = 0, initialDelay = INITIAL_DEALY) {
     }
 }
 
-/**
- * Calculate the relevance score and find the most common term in the given text.
- *
- * @param {string} text - The text to analyze.
- * @return {object} An object containing the score and the most common term.    */
-const relevanceScoreAndMaxCommonFoundTerm = (text) => {
-    text = text.toLowerCase();
+
+/** Calculate the relevance score and find the most common term in the given text.
+ * @param {string} title - The title of the article.
+ * @param {string} articleContent - The content of the article.
+ * @return {object} An object containing the score and the most common term.
+ *     - {number} score: The relevance score.
+ *     - {string} mostCommonTerm: The most common term found in the text.       */
+const relevanceScoreAndMaxCommonFoundTerm = (title, articleContent) => {
+    const text = (title + ' ' + articleContent).toLowerCase();
     let score = 0, mostCommonTerm = EMPTY_STRING, maxCommonFoundTermCount = 0;
 
     for (const term of terms) {
@@ -705,11 +707,15 @@ function createWorker(workerData) {
         let latestResult = null;
 
         worker.on('message', (message) => {
-            if (message.type === 'result') {
+            if (message.type === 'result' || message.type === 'partial_result') {
                 latestResult = message.result;
+                if (message.type === 'partial_result') {
+                    console.log('Received partial result due to possible memory constraints');
+                }
                 resolve(latestResult);
             } else if (message.type === 'progress') {
                 latestResult = message.result;
+                console.log('Received progress update from worker');
             } else if (message.type === 'addLinks') {
                 message.links.forEach(link => addedLinks.add(link));
             }
@@ -717,7 +723,12 @@ function createWorker(workerData) {
 
         worker.on('error', (error) => {
             console.error(`Worker error: ${error}`);
-            reject(error);
+            if (error.message.includes('out of memory')) {
+                console.log('Worker ran out of memory, resolving with latest result');
+                resolve(latestResult);
+            } else {
+                reject(error);
+            }
         });
 
         worker.on('exit', (code) => {
@@ -795,9 +806,11 @@ async function sanitizeXML(xml) {
  *
  * @param {string} feedUrl - The URL of the RSS feed to scrape.
  * @return {Array} An array of articles with title, link, date, content, score, summary, and full text.         */
-async function scrapeRSSFeed(feedUrl) {
+async function scrapeRSSFeed(feedUrl, workerAddedLinks) {
+    let results = {};
+    terms.forEach(term => results[term] = []);
+
     try {
-        const articles = [];
         const feedData = await fetchWithRetry(feedUrl);
         const sanitizedData = await sanitizeXML(feedData);
 
@@ -815,47 +828,59 @@ async function scrapeRSSFeed(feedUrl) {
         }
 
         const feed = jsonObj.rss ? jsonObj.rss.channel : jsonObj.feed;
-        const items = feed.item || feed.entry;
+        let items = feed.item || feed.entry;
 
         if (!items || items.length === 0) {
             console.error('No items found in feed:', JSON.stringify(jsonObj, null, 2));
-            return articles;
+            return results;
         }
 
-        for (const item of items) {
-            if (globalStopFlag) {
-                break;
+        for (let item of items) {
+            if (globalStopFlag) break;
+            
+            const link = item.link;
+            if (workerAddedLinks.has(link)) continue;
+            
+            const title = cleanText(item.title);
+            const fullText = cleanText(item.description || item.summary || item.content);
+            const date = item.pubDate || item.updated;
+            
+            if (!isRecent(date)) continue;
+
+            const { score, mostCommonTerm } = relevanceScoreAndMaxCommonFoundTerm(title, fullText);
+            
+            if (score > 0) {
+                workerAddedLinks.add(link);
+                console.log(`RSS-feed Added article! - ${link}`);
+                
+                results[mostCommonTerm].push({
+                    title,
+                    link,
+                    summary: STRING_PLACEHOLDER,
+                    score,
+                    term: mostCommonTerm,
+                    fullText,
+                    date
+                });
             }
-            articles.push({
-                title: item.title,
-                link: item.link,
-                date: item.pubDate || item.updated,
-                score: 0,
-                summary: STRING_PLACEHOLDER,
-                fullText: item.description || item.summary || item.content
-            });
         }
 
-        return articles;
+        return results;
     } catch (error) {
         console.error('Error parsing RSS feed:', error);
-        return [];
+        return results;
     }
 }
 
 async function crawlWebsite(url, terms, workerAddedLinks) {
     let results = {};
-    terms.forEach(term => results[term] = new Set());
+    terms.forEach(term => results[term] = []);
 
-    /** Asynchronously searches for articles related to the given terms on the specified website.
-     * @param {Array<string>} terms - An array of terms to search for.
-     * @param {Set<string>} workerAddedLinks - A set of links that have already been added.
-     * @return {Promise<Object>} A promise that resolves to an object containing the search results.    */
-    async function searchLoop() {
+    async function searchLoop(resultados) {
         for (const term of terms) {
             if (globalStopFlag) {
                 console.log("Stopping crawl due to global stop flag");
-                return results;
+                return resultados;
             }
 
             try {
@@ -865,8 +890,9 @@ async function crawlWebsite(url, terms, workerAddedLinks) {
 
                 const articleElements = $("li.b_algo");
 
-                for (let i = 0; i < articleElements.length && !globalStopFlag; i++) {
-                    const article = articleElements[i];
+                for (const article of articleElements) {
+                    if (globalStopFlag) break;
+
                     const titleElement = $(article).find("h2");
                     const linkElement = titleElement.find("a");
                     const dateElement = $(article).find("span.news_dt");
@@ -876,42 +902,31 @@ async function crawlWebsite(url, terms, workerAddedLinks) {
                         const link = normalizeUrl(linkElement.attr("href"));
                         const dateText = dateElement.text().trim();
 
-                        if (!isWebsiteValid(url, link)) continue;
+                        if (!isWebsiteValid(url, link) || workerAddedLinks.has(link) || !isRecent(dateText)) continue;
 
                         try {
-                            // Double-check if the link has been added
-                            if (!workerAddedLinks.has(link)) {
-                                if (isRecent(dateText)) {
-                                    let articleContent;
-                                    try {
-                                        articleContent = await extractArticleText(link);
-                                    } catch (error) {
-                                        console.error(`Error extracting text from ${link}: ${error.message}`);
-                                        continue;
-                                    }
+                            let articleContent = await extractArticleText(link);
+                            const { score, mostCommonTerm } = relevanceScoreAndMaxCommonFoundTerm(title, articleContent);
 
-                                    const { score, mostCommonTerm } = relevanceScoreAndMaxCommonFoundTerm(title + ' ' + articleContent);
+                            if (score > 0) {
+                                workerAddedLinks.add(link);
+                                console.log(`Added article! - ${link}`);
 
-                                    if (score > 0) {
-                                        workerAddedLinks.add(link);
-
-                                        console.log(`Added article! - ${link}`);
-
-                                        results[mostCommonTerm].add({
-                                            title: title,
-                                            link: link,
-                                            summary: STRING_PLACEHOLDER,
-                                            score: score,
-                                            term: mostCommonTerm,
-                                            fullText: articleContent,
-                                            date: dateText
-                                        });
-                                    }
-                                    if (score == 0) {
-                                        console.log("ZERO SCORE");
-                                    }
-                                }
+                                resultados[mostCommonTerm].push({
+                                    title,
+                                    link,
+                                    summary: STRING_PLACEHOLDER,
+                                    score,
+                                    term: mostCommonTerm,
+                                    fullText: articleContent,
+                                    date: dateText
+                                });
+                            } else {
+                                console.log("ZERO SCORE");
                             }
+
+                            // Clear articleContent to free up memory
+                            articleContent = null;
                         } catch (error) {
                             console.error(`Error processing article ${link}: ${error.message}`);
                         }
@@ -924,6 +939,7 @@ async function crawlWebsite(url, terms, workerAddedLinks) {
                 }
             }
         }
+        return resultados;
     }
 
     console.log(`Crawling ${url}...`);
@@ -933,34 +949,19 @@ async function crawlWebsite(url, terms, workerAddedLinks) {
         console.log(`RSS detected! for ${url}`);
         try {
             for (let feedUrl of rssFeeds) {
-                let articles = await scrapeRSSFeed(feedUrl);
-                if (articles.length == 0) throw new Error("Empty RSS-feed");
-                for (let i = 0; i < articles.length && globalStopFlag ; i++) {
-                    let article = articles[i];
-                    if (!workerAddedLinks.has(article.link)) {        
-                        article.title = cleanText(article.title)            ;
-                        article.fullText = cleanText(article.fullText);
-                        let { score, mostCommonTerm } = relevanceScoreAndMaxCommonFoundTerm(article.title + ' ' + article.fullText, terms);
-                        if (score > 0 && isRecent(article.date)) {
-                            workerAddedLinks.add(article.link);
-                            console.log(`RSS-feed Added article! - ${article.link}`);
-                            article.score = score;
-                            article.term = mostCommonTerm;
-                            results[mostCommonTerm].add(article);
-                        }
-                    }
+                let feedResults = await scrapeRSSFeed(feedUrl, workerAddedLinks);
+                for (let term in feedResults) {
+                    if (!results[term] || results[term] == undefined) results[term] = [];
+                    results[term].push(...feedResults[term]);
                 }
             }
         } catch (error) {
             console.log(`Error scraping RSS-feed of ${url}\nError: ${error.message}\nLet's continue with regular scraping`);
-            results = await searchLoop();
+            results = await searchLoop(results);
         }
     } else {
-        results = await searchLoop();
+        results = await searchLoop(results);
     }
-    Object.keys(results).forEach(term => {
-        results[term] = Array.from(results[term]);
-    });
 
     return results;
 }
@@ -1502,42 +1503,62 @@ if (isMainThread) {
         let workerAddedLinks = new Set(initialAddedLinks);
 
         const results = {};
-        for (const term of terms) results[term] = new Set();
+        for (const term of terms) results[term] = [];
 
-        for (const url of websites) {
+        const CHUNK_SIZE = 5; // Process 5 websites at a time
+        const websiteChunks = chunkArray(websites, CHUNK_SIZE);
+
+        for (const websiteChunk of websiteChunks) {
             if (Date.now() >= cycleEndTime.getTime()) {
                 console.log(`Worker reached cycle end time, stopping.`);
                 break;
             }
+
             try {
-                const websiteResults = await crawlWebsite(url, terms, workerAddedLinks);
-                for (const [term, articles] of Object.entries(websiteResults)) {
-                    articles.forEach(article => {
-                        results[term].add(article);
-                        if (!workerAddedLinks.has(article.link)) {
-                            workerAddedLinks.add(article.link);
-                            parentPort.postMessage({ type: 'addLinks', links: [article.link] });
-                        }
-                    });
+                for (const url of websiteChunk) {
+                    const websiteResults = await crawlWebsite(url, terms, workerAddedLinks);
+                    for (const [term, articles] of Object.entries(websiteResults)) {
+                        results[term].push(...articles);
+                        articles.forEach(article => {
+                            if (!workerAddedLinks.has(article.link)) {
+                                workerAddedLinks.add(article.link);
+                                parentPort.postMessage({ type: 'addLinks', links: [article.link] });
+                            }
+                        });
+                    }
                 }
-                // Send progress update
+
+                // Send progress update after each chunk
                 parentPort.postMessage({
                     type: 'progress',
-                    result: {
-                        articles: Object.fromEntries(Object.entries(results).map(([k, v]) => [k, Array.from(v)]))
-                    }
+                    result: { articles: results }
                 });
+
+                // Basic memory management: clear some objects
+                global.gc && global.gc();
+                websiteResults = null;
+
             } catch (error) {
-                console.error(`Error crawling ${url}: ${error}`);
+                if (error instanceof RangeError) {
+                    console.error('Possible out of memory error, sending partial results');
+                    parentPort.postMessage({
+                        type: 'partial_result',
+                        result: { articles: results }
+                    });
+                    break;
+                } else {
+                    console.error(`Error processing chunk: ${error}`);
+                }
             }
+
+            // Short delay between chunks to allow for potential garbage collection
+            await new Promise(resolve => setTimeout(resolve, 100));
         }
 
         // Send final result
         parentPort.postMessage({
             type: 'result',
-            result: {
-                articles: Object.fromEntries(Object.entries(results).map(([k, v]) => [k, Array.from(v)]))
-            }
+            result: { articles: results }
         });
     })();
 }
