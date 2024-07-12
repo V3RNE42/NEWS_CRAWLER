@@ -488,6 +488,7 @@ module.exports = {
         "https://excelsior.com.mx",
         "https://expansion.com",
         "https://fundacionfaes.org",
+        "https://galaxiamilitar.es/",
         "https://gcn.es",
         "https://gizmodo.es",
         "https://global-strategy.org",
