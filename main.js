@@ -149,6 +149,9 @@ async function extractArticleText(url) {
  * @param {string} text - The text to be cleaned.
  * @return {string} The cleaned text.     */
 const cleanText = (text) => {
+    //TODO: remove full content of <div> tags with attributes id or class whith names that incluide 'comment' or 'comments
+
+    
     text = sanitizeHtml(text, { allowedTags: [], allowedAttributes: [] });
 
     let patterns = [/\n/g,/\t/g,/<[^>]*>/g,/ {2,}/g,/  /g];
@@ -637,23 +640,22 @@ async function fetchWithRetry(url, retries = 0, initialDelay = INITIAL_DEALY) {
     }
 }
 
-
-/** Calculate the relevance score and find the most common term in the given text.
+/** Calculates the relevance score and finds the most common term in the given text.
  * @param {string} title - The title of the article.
  * @param {string} articleContent - The content of the article.
  * @return {object} An object containing the score and the most common term.
  *     - {number} score: The relevance score.
- *     - {string} mostCommonTerm: The most common term found in the text.       */
+ *     - {string} mostCommonTerm: The most common term found in the text.   */
 const relevanceScoreAndMaxCommonFoundTerm = (title, articleContent) => {
     const text = (title + ' ' + articleContent).toLowerCase();
-    let score = 0, mostCommonTerm = EMPTY_STRING, maxCommonFoundTermCount = 0;
+    let score = 0, mostCommonTerm = '', maxCommonFoundTermCount = 0;
 
     for (const term of terms) {
         const regex = new RegExp("\\b" + term + "\\b", 'ig');
         const matches = text.match(regex) || [];
         const termCount = matches.length;
         if (termCount > 0) {
-            score++;
+            score++; // Increment for each term found at least once
             if (termCount > maxCommonFoundTermCount) {
                 mostCommonTerm = term;
                 maxCommonFoundTermCount = termCount;
@@ -1123,14 +1125,19 @@ const removeRedundantArticles = async (results) => {
     return results;
 }
 
+
+/** Checks if the given text is relevant based on the occurrence of terms.
+ * @param {string} text - The text to be checked for relevance.
+ * @return {boolean} Returns true if the text is relevant, false otherwise. */
 function isTextRelevant(text) {
-    let mentions = 0;
     for (const term of terms) {
-        const regex = new RegExp(term, 'gi');
+        const regex = new RegExp(`\\b${term}\\b`, 'gi');
         const matches = text.match(regex) || [];
-        mentions += matches.length;
+        if (matches.length > 1) {
+            return true;
+        }
     }
-    return mentions > 1;
+    return false;
 }
 
 /**
@@ -1141,30 +1148,28 @@ function isTextRelevant(text) {
 async function removeIrrelevantArticles(results) {
     let reorganizedResults = {};
 
-    // Initialize reorganizedResults with all terms from the original results
     for (const term of Object.keys(results)) {
         reorganizedResults[term] = [];
     }
 
     for (const [term, articles] of Object.entries(results)) {
         for (let article of articles) {
-            if (article.fullText === EMPTY_STRING) {
+            if (article.fullText === '') {
                 try {
                     article.fullText = await extractArticleText(article.link);
                 } catch (error) {
                     console.error(`Error extracting text from ${article.link}: ${error.message}`);
-                    continue; // Skip this article if text extraction fails
+                    continue;
                 }
             }
 
-            let title = article.title;
-            let textToAnalyze = title.concat(' ', article.fullText);
+            let textToAnalyze = article.title + ' ' + article.fullText;
 
             let mainTopics = getMainTopics(textToAnalyze, LANGUAGE, SENSITIVITY);
             if ((!mainTopics.some(topic => terms.includes(topic.toLowerCase())) || !isTextRelevant(textToAnalyze))
                     && article.score === 1) {
                 console.log(`Irrelevant article discarded: ${article.link}`);
-                continue; // Skip this article if it's not relevant
+                continue;
             }
 
             reorganizedResults[term].push(article);
