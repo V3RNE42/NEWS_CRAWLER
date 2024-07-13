@@ -145,23 +145,38 @@ async function extractArticleText(url) {
     }
 }
 
-/** Cleans the given text by removing HTML tags and trimming whitespace
+/** Cleans the given text by removing HTML tags and trimming whitespace.
  * @param {string} text - The text to be cleaned.
- * @return {string} The cleaned text.     */
+ * @return {string} The cleaned text.                                   */
 const cleanText = (text) => {
-    //TODO: remove full content of <div> tags with attributes id or class whith names that incluide 'comment' or 'comments
+    // Custom sanitize function to remove comment divs
+    const removeCommentDivs = (tagName, attribs) => {
+        if (tagName === 'div') {
+            const id = attribs.id || '';
+            const className = attribs.class || '';
+            if (id.toLowerCase().includes('comment') || className.toLowerCase().includes('comment')) {
+                return false;
+            }
+        }
+        return true;
+    };
 
-    
-    text = sanitizeHtml(text, { allowedTags: [], allowedAttributes: [] });
+    const sanitizeOptions = {
+        allowedTags: [],
+        allowedAttributes: {},
+        exclusiveFilter: removeCommentDivs
+    };
 
-    let patterns = [/\n/g,/\t/g,/<[^>]*>/g,/ {2,}/g,/  /g];
+    text = sanitizeHtml(text, sanitizeOptions);
+
+    let patterns = [/\n/g, /\t/g, /<[^>]*>/g, / {2,}/g, /  /g];
 
     for (let pattern of patterns) {
         text = text.replace(pattern, ' ');
     }
 
     return text.trim();
-}
+};
 
 async function getChunkedOpenAIResponse(text, topic, maxTokens) {
     /** Generates a prompt for OpenAI to generate a summary of a specific part of a news article.
