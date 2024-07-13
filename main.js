@@ -43,6 +43,58 @@ let addedLinks = new Set();
 let workers = [];
 terms = terms.map((term) => term.toLowerCase());
 
+/** Patterns that contain comment sections **/
+const patternsToRemove = [
+    /<div id="comments"[\s\S]*?<\/div>\s*<\/div>\s*<\/div>/,
+    /<div[^>]*(?:id|class)=[^>]*comments?[^>]*>[\s\S]*?<\/div>/gi,
+    /<div[^>]*(?:id|class)=[^>]*comment-[^>]*>[\s\S]*?<\/div>/gi,
+    /<ol[^>]*class=[^>]*commentlist[^>]*>[\s\S]*?<\/ol>/gi,
+    /<div[^>]*id="respond"[^>]*>[\s\S]*?<\/div>/gi,
+    /<h2[^>]*class=[^>]*comments-title[^>]*>[\s\S]*?<\/h2>/gi,
+    /<li[^>]*class=[^>]*comment[^>]*>[\s\S]*?<\/li>/gi,
+    /<form[^>]*id="commentform"[^>]*>[\s\S]*?<\/form>/gi,
+    /<p[^>]*class=[^>]*comment-[^>]*>[\s\S]*?<\/p>/gi,
+    /<section[^>]*(?:id|class)=[^>]*comments?[^>]*>[\s\S]*?<\/section>/gi,
+    /<article[^>]*(?:id|class)=[^>]*comment[^>]*>[\s\S]*?<\/article>/gi,
+    /<div[^>]*(?:id|class)=[^>]*comment-respond[^>]*>[\s\S]*?<\/div>/gi,
+    /<div[^>]*(?:id|class)=[^>]*comment-reply[^>]*>[\s\S]*?<\/div>/gi,
+    /<textarea[^>]*(?:id|name)=[^>]*comment[^>]*>[\s\S]*?<\/textarea>/gi,
+    /<input[^>]*(?:id|name)=[^>]*comment[^>]*>/gi,
+    /<button[^>]*(?:id|class)=[^>]*comment[^>]*>[\s\S]*?<\/button>/gi,
+    /<a[^>]*class=[^>]*comment-reply-link[^>]*>[\s\S]*?<\/a>/gi,
+    /<div[^>]*(?:id|class)=[^>]*comment-author[^>]*>[\s\S]*?<\/div>/gi,
+    /<div[^>]*(?:id|class)=[^>]*comment-metadata[^>]*>[\s\S]*?<\/div>/gi,
+    /<div[^>]*(?:id|class)=[^>]*comment-content[^>]*>[\s\S]*?<\/div>/gi,
+    /<nav[^>]*(?:id|class)=[^>]*comment-navigation[^>]*>[\s\S]*?<\/nav>/gi,
+    /<ul[^>]*(?:id|class)=[^>]*comment-list[^>]*>[\s\S]*?<\/ul>/gi,
+    /<div[^>]*(?:id|class)=[^>]*comment-pagination[^>]*>[\s\S]*?<\/div>/gi,
+    /<div[^>]*(?:id|class)=[^>]*comment-awaiting-moderation[^>]*>[\s\S]*?<\/div>/gi,
+    /<p[^>]*(?:id|class)=[^>]*comment-notes[^>]*>[\s\S]*?<\/p>/gi,
+    /<p[^>]*(?:id|class)=[^>]*comment-form-[^>]*>[\s\S]*?<\/p>/gi,
+    /<div[^>]*(?:id|class)=[^>]*comment-subscription-form[^>]*>[\s\S]*?<\/div>/gi
+];
+
+/** Removes patterns from the content recursively.
+ * @param {string} content - The content to remove patterns from.
+ * @return {string} The content with patterns removed.      */
+const removePatterns = (content) => {
+    let newContent = content;
+    let changed = false;
+
+    for (let pat of patternsToRemove) {
+        const tempContent = newContent.replace(pat, '');
+        if (tempContent !== newContent) {
+            newContent = tempContent;
+            changed = true;
+        }
+    }
+
+    if (changed) {
+        return removePatterns(newContent);
+    }
+
+    return newContent;
+};
 
 const parseTime = (timeStr) => {
     // Regular expression to match HH:MM format
@@ -98,13 +150,12 @@ async function extractArticleText(url) {
     try {
         const browser = await puppeteer.launch({
             headless: true,
-            args: ['--no-sandbox', '--disable-setuid-sandbox'],
-            executablePath: BROWSER_PATH
+            args: ['--no-sandbox', '--disable-setuid-sandbox']
         });
         const page = await browser.newPage();
         await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
 
-        let articleText = await page.evaluate(() => {
+        let articleHtml = await page.evaluate(() => {
             const mainSelectors = [
                 'article', 'main', 'section', '.article-body',
                 '.content', '.main-content', '.entry-content',
@@ -117,65 +168,48 @@ async function extractArticleText(url) {
                 if (mainElement) break;
             }
 
-            if (!mainElement) return '';
-
-            return mainElement.innerText;
+            return mainElement ? mainElement.innerHTML : '';
         });
 
         await browser.close();
 
-        if (articleText === EMPTY_STRING) {
-            const response = await fetch(url);
-            const html = await response.text();
-            const $ = cheerio.load(html);
-            articleText = $.html();
+        if (articleHtml === EMPTY_STRING) {
+            const response = await fetchWithRetry(url);
+            articleHtml = await response.text();
         }
 
-        return cleanText(articleText);
+        return cleanText(articleHtml);
     } catch (error) {
         try {
-            const response = await fetch(url);
+            const response = await fetchWithRetry(url);
             const html = await response.text();
-            const $ = cheerio.load(html);
-            return cleanText($.html());
-        } catch (error) {            
-            console.error(`Error extracting text from ${url}: ${error.message}`);
+            return cleanText(html);
+        } catch (fetchError) {
+            console.error(`Fetch error for ${url}: ${fetchError.message}`);
             return EMPTY_STRING;
         }
     }
 }
 
-/** Cleans the given text by removing HTML tags and trimming whitespace.
- * @param {string} text - The text to be cleaned.
- * @return {string} The cleaned text.                                   */
-const cleanText = (text) => {
-    // Custom sanitize function to remove comment divs
-    const removeCommentDivs = (tagName, attribs) => {
-        if (tagName === 'div') {
-            const id = attribs.id || '';
-            const className = attribs.class || '';
-            if (id.toLowerCase().includes('comment') || className.toLowerCase().includes('comment')) {
-                return false;
-            }
-        }
-        return true;
-    };
+/** Cleans the HTML text by removing patterns, sanitizing, and replacing unwanted characters.
+ * @param {string} html - The HTML text to be cleaned.
+ * @return {string} The cleaned HTML text.  */
+const cleanText = (html) => {
+    let cleanedHtml = removePatterns(html);
 
-    const sanitizeOptions = {
+    cleanedHtml = sanitizeHtml(cleanedHtml, { 
         allowedTags: [],
-        allowedAttributes: {},
-        exclusiveFilter: removeCommentDivs
-    };
+        allowedAttributes: {}
+    });
 
-    text = sanitizeHtml(text, sanitizeOptions);
+    cleanedHtml = cleanedHtml
+        .replace(/\n/g, ' ')
+        .replace(/\t/g, ' ')
+        .replace(/<[^>]*>/g, '')
+        .replace(/\s{2,}/g, ' ')
+        .trim();
 
-    let patterns = [/\n/g, /\t/g, /<[^>]*>/g, / {2,}/g, /  /g];
-
-    for (let pattern of patterns) {
-        text = text.replace(pattern, ' ');
-    }
-
-    return text.trim();
+    return cleanedHtml;
 };
 
 async function getChunkedOpenAIResponse(text, topic, maxTokens) {
@@ -632,6 +666,12 @@ function isRecent(dateText) {
 }
 
 
+/** Fetches data from a given URL with retry logic.
+ * @param {string} url - The URL to fetch data from.
+ * @param {number} [retries=0] - The number of retries.
+ * @param {number} [initialDelay=INITIAL_DEALY] - The initial delay in milliseconds.
+ * @return {Promise<any>} A Promise that resolves to the fetched data.
+ * @throws {Error} If the maximum number of retries is reached. */
 async function fetchWithRetry(url, retries = 0, initialDelay = INITIAL_DEALY) {
     try {
         const randomDelay = Math.floor(Math.random() * initialDelay);
