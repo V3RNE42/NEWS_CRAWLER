@@ -920,6 +920,7 @@ async function scrapeRSSFeed(feedUrl, workerAddedLinks) {
             const fullText = cleanText(item.description || item.summary || item.content);
             const date = item.pubDate || item.updated;
             
+            if (!isWebsiteValid(feedUrl, link)) continue;
             if (!isRecent(date)) continue;
 
             const { score, mostCommonTerm } = relevanceScoreAndMaxCommonFoundTerm(title, fullText);
@@ -950,10 +951,6 @@ async function scrapeRSSFeed(feedUrl, workerAddedLinks) {
 async function crawlWebsite(url, terms, workerAddedLinks) {
     let results = {};
     terms.forEach(term => results[term] = []);
-
-    if (url.includes('#comment') || url.includes('/opinion/')) {
-        return results;
-    }
 
     async function searchLoop(resultados) {
         for (const term of terms) {
@@ -1062,6 +1059,11 @@ const chunkArray = (array, numChunks) => {
 };
 
 function isWebsiteValid(baseUrl, fullLink) {
+    //get rid of useless opinions. We're crawling FACTS
+    if (fullLink.includes('#comment') || fullLink.includes('/opinion/')) {
+        return false;
+    }
+
     try {
         const baseHostname = new URL(baseUrl).hostname;
         const linkHostname = new URL(fullLink).hostname;
