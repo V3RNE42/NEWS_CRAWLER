@@ -157,7 +157,13 @@ async function assignBrowserPath() {
         : config.browser.path;
 }
 
-const todayDate = () => new Date().toISOString().split("T")[0];
+const todayDate = () => {
+    const today = new Date();
+    const day = String(today.getDate()).padStart(2, '0');
+    const month = String(today.getMonth() + 1).padStart(2, '0'); // Months are zero-based
+    const year = today.getFullYear();
+    return `${day}/${month}/${year}`;
+} 
 
 const sleep = async (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -1248,11 +1254,12 @@ const removeRedundantArticles = async (results) => {
             let unique = true;
             for (let j = 0; j < articles.length; j++) {
                 if (i !== j && !toRemove.has(j)) {
+                    let localThreshold = Math.max(((100 - articles.length)/100), SIMILARITY_THRESHOLD);
                     const sameNews = await coveringSameNews(
                         articles[i].fullText,
                         articles[j].fullText,
                         LANGUAGE,
-                        SIMILARITY_THRESHOLD
+                        localThreshold
                     );
                     if (sameNews || (articles[i].link == articles[j].link)) {
                         unique = false;
