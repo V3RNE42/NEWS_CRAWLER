@@ -829,7 +829,12 @@ function createWorker(workerData) {
  *
  * @param {string} url - The URL to fetch the RSS feed from.
  * @return {Array} An array of RSS feed URLs extracted from the provided URL.           */
-async function detectRSS(url, baseUrl, rssFeeds = new Set()) {
+async function detectRSS(url, baseUrl, rssFeeds = new Set(), depth = 0) {
+    const MAX_DEPTH = 4;
+
+    if (depth > MAX_DEPTH) {
+        return Array.from(rssFeeds);
+    }
     try {
         const data = await fetchWithRetry(url);
         const $ = cheerio.load(data);
@@ -851,7 +856,7 @@ async function detectRSS(url, baseUrl, rssFeeds = new Set()) {
         for (const link of subRSSLinks) {
             try {
                 const fullLink = new URL(link, baseUrl).href;
-                await detectRSS(fullLink, baseUrl, rssFeeds);
+                await detectRSS(fullLink, baseUrl, rssFeeds, depth);
             } catch (err) {
                 console.error('Invalid URL:', link, err.message);
             }
