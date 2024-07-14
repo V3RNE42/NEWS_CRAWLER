@@ -781,7 +781,15 @@ function createWorker(workerData) {
                 }
                 resolve(latestResult);
             } else if (message.type === 'progress') {
-                latestResult = message.result;
+                if (!latestResult) {
+                    latestResult = { articles: {} };
+                }
+                for (const [term, articles] of Object.entries(message.result.articles)) {
+                    if (!latestResult.articles[term]) {
+                        latestResult.articles[term] = [];
+                    }
+                    latestResult.articles[term].push(...articles);
+                }
                 console.log('Received progress update from worker');
             } else if (message.type === 'addLinks') {
                 message.links.forEach(link => addedLinks.add(link));
@@ -942,6 +950,10 @@ async function scrapeRSSFeed(feedUrl, workerAddedLinks) {
 async function crawlWebsite(url, terms, workerAddedLinks) {
     let results = {};
     terms.forEach(term => results[term] = []);
+
+    if (url.includes('#comment') || url.includes('/opinion/')) {
+        return results;
+    }
 
     async function searchLoop(resultados) {
         for (const term of terms) {
