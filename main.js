@@ -1495,6 +1495,15 @@ const sendEmail = async (emailTime) => {
     }
 };
 
+/** Performs forced garbage collection if available, otherwise provides instructions. */
+const forceGarbageCollection = () => {
+    if (global.gc) {
+        global.gc();
+        console.log('Forced garbage collection completed');
+    } else {
+        console.log('Garbage collection is not exposed. Use --expose-gc when launching node to enable forced garbage collection.');
+    }
+};
 
 const main = async () => {
     console.log("Starting main process...");
@@ -1527,6 +1536,9 @@ const main = async () => {
 
         await saveResults(resultados, emailTime);
         console.log("Results saved.");
+
+        // Force garbage collection after each cycle
+        forceGarbageCollection();
 
         if (globalStopFlag) {
             console.log("Stopping main loop due to global stop flag");
