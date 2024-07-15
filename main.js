@@ -518,7 +518,6 @@ function isRecent(dateText) {
         }
     }
 
-    // TODO: find a way to also parse date: 10/07/2024 0:39:55 +02:00
     let cosa = dateText.match(/(\d{2}\/\d{2}\/\d{4} \d{1}:\d{2}:\d{2}) ([+-]\d{2}:\d{2})/);
     if (cosa) {
         let [_, datePart, offset] = cosa;
@@ -711,6 +710,9 @@ async function fetchTextWithRetry(url) {
  * @return {Promise<any>} A Promise that resolves to the fetched data.
  * @throws {Error} If the maximum number of retries is reached. */
 async function fetchWithRetry(url, retries = 0, initialDelay = INITIAL_DEALY) {
+    if (globalStopFlag) {
+        throw new LightweightError('Crawl stopped');
+    }
     try {
         const randomDelay = Math.floor(Math.random() * initialDelay);
         await sleep(randomDelay);
@@ -887,6 +889,10 @@ function createWorker(workerData) {
  * @param {string} url - The URL to fetch the RSS feed from.
  * @return {Array} An array of RSS feed URLs extracted from the provided URL.           */
 async function detectRSS(url, baseUrl, rssFeeds = new Set(), depth = 0) {
+    if (globalStopFlag) {
+        return Array.from(rssFeeds);
+    }
+
     const MAX_DEPTH = 4;
 
     if (depth > MAX_DEPTH) {
@@ -1161,6 +1167,10 @@ async function scrapeRSSFeed(feedUrl, workerAddedLinks) {
 }
 
 async function crawlWebsite(url, terms, workerAddedLinks) {
+    if (globalStopFlag) {
+        return {};
+    }
+
     let results = {};
     terms.forEach(term => results[term] = []);
 
@@ -1673,7 +1683,7 @@ const crawlWebsites = async (cycleEndTime) => {
 
     const shuffledWebsites = shuffleArray([...websites]);
     const maxConcurrentWorkers = os.cpus().length;
-    let MINIMUM_AMOUNT_WORKERS = 12;//1 + Math.floor(maxConcurrentWorkers * 0.2);
+    let MINIMUM_AMOUNT_WORKERS = 1 + Math.floor(maxConcurrentWorkers * 0.2);
     const websiteChunks = chunkArray(shuffledWebsites, maxConcurrentWorkers);
 
     console.log(`Creating ${maxConcurrentWorkers} worker(s)...`);
@@ -1722,10 +1732,15 @@ const crawlWebsites = async (cycleEndTime) => {
         const intervalId = setInterval(() => {
             if (workers.length < MINIMUM_AMOUNT_WORKERS) {
                 console.log(`Number of active workers (${workers.length}) fell below minimum (${MINIMUM_AMOUNT_WORKERS}). Stopping crawl.`);
+                globalStopFlag = true;
+                for (const worker of workers) {
+                    worker.terminate();
+                }
+                workers = [];
                 clearInterval(intervalId);
                 resolve('below_minimum');
             }
-        }, 1000); // Check every second
+        }, 5000);
 
         Promise.all(workerPromises).then(() => {
             clearInterval(intervalId);
@@ -1741,6 +1756,7 @@ const crawlWebsites = async (cycleEndTime) => {
     console.log(`Race completed. Result: ${raceResult}`);
 
     console.log("Collecting results from all workers...");
+
     for (const workerPromise of workerPromises) {
         try {
             const workerResult = await workerPromise;
@@ -1762,10 +1778,14 @@ const crawlWebsites = async (cycleEndTime) => {
     }
 
     console.log("All results collected. Terminating workers...");
-    for (const worker of workers) {
-        worker.terminate();
+    try {
+        for (const worker of workers) {
+            worker.terminate();
+        }
+        workers = []; // Clear the workers array
+    } catch {
+        //do nothing
     }
-    workers = []; // Clear the workers array
 
     console.log("Crawling process completed.");
     return allResults;
@@ -1831,7 +1851,7 @@ const main = async () => {
         emailTime = parseTime(config.time.email);
         console.log('Current emailEndTime:', emailTime);
 
-        const crawlCycleEndTime = new Date(now.getTime() + 15 * 60 * 1000); // 1/4 hour from now
+        const crawlCycleEndTime = new Date(now.getTime() + 10 * 60 * 1000); // 1/6 hour from now
         const cycleEndTime = emailTime < crawlCycleEndTime ? emailTime : crawlCycleEndTime;
 
         console.log(`Cycle end time set to: ${cycleEndTime}`);
@@ -1906,7 +1926,7 @@ if (isMainThread) {
         parentPort.postMessage({ type: 'started' });
 
         for (const url of urlsToCrawl) {
-            if (Date.now() >= cycleEndTime.getTime()) {
+            if (Date.now() >= cycleEndTime.getTime() || globalStopFlag) {
                 break;
             }
 
@@ -1923,12 +1943,15 @@ if (isMainThread) {
                     }
                 }
             } catch (error) {
+                if (globalStopFlag) break;
                 parentPort.postMessage({
                     type: 'error',
                     error: new LightweightError(`Error processing ${url}: ${error.message}`)
                 });
                 continue;
             }
+
+            if (globalStopFlag) break;
 
             parentPort.postMessage({
                 type: 'progress',
