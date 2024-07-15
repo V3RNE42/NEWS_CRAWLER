@@ -29,6 +29,7 @@ const IGNORE_REDUNDANCY = config.text_analysis.ignore_redundancy;
 const MAX_RETRIES_PER_FETCH = 3; //to be managed by user configuration
 const INITIAL_DEALY = 500; //to be managed by user configuration
 const MINUTES_TO_CLOSE = 10 * 60000;
+let MINIMUM_AMOUNT_WORKERS = 1; //to be managed by user configuration
 let FALSE_ALARM = false;
 let BROWSER_PATH;
 
@@ -164,7 +165,7 @@ const todayDate = () => {
     const month = String(today.getMonth() + 1).padStart(2, '0'); // Months are zero-based
     const year = today.getFullYear();
     return `${day}/${month}/${year}`;
-} 
+}
 
 const sleep = async (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -819,7 +820,7 @@ function createWorker(workerData) {
                 case 'partial_result':
                     if (message.result && message.result.articles) {
                         for (const [term, articles] of Object.entries(message.result.articles)) {
-                            if (!latestResult.articles[term] || latestResult.articles[term] == undefined || latestResult.articles[term] == null) {
+                            if (!latestResult.articles[term]) {
                                 latestResult.articles[term] = [];
                             }
                             latestResult.articles[term].push(...articles);
@@ -835,7 +836,7 @@ function createWorker(workerData) {
                 case 'progress':
                     if (message.result && message.result.articles) {
                         for (const [term, articles] of Object.entries(message.result.articles)) {
-                            if (!latestResult.articles[term] || latestResult.articles[term] == undefined || latestResult.articles[term] == null) {
+                            if (!latestResult.articles[term]) {
                                 latestResult.articles[term] = [];
                             }
                             latestResult.articles[term].push(...articles);
@@ -854,6 +855,7 @@ function createWorker(workerData) {
 
         worker.on('error', (error) => {
             console.error(`Worker error: ${error}`);
+            workers = workers.filter(w => w !== worker);
             if (error.message.includes('out of memory')) {
                 console.log('Worker ran out of memory, resolving with latest result');
                 resolve(latestResult);
@@ -998,7 +1000,7 @@ function isOpinionArticle(originalItem) {
     }
 
     const opinionKeywords = ['opinión', 'editorial', 'columna', 'punto de vista'];
-    if (originalItem.title && typeof originalItem.title === 'string' && 
+    if (originalItem.title && typeof originalItem.title === 'string' &&
         opinionKeywords.some(keyword => originalItem.title.toLowerCase().includes(keyword))) {
         return true;
     }
@@ -1108,7 +1110,7 @@ async function scrapeRSSFeed(feedUrl, workerAddedLinks) {
 
             try {
                 let link = extractLink(item);
-                
+
                 if (Array.isArray(link)) {
                     link = link[0];
                 }
@@ -1329,7 +1331,7 @@ const removeRedundantArticles = async (results) => {
             let unique = true;
             for (let j = 0; j < articles.length; j++) {
                 if (i !== j && !toRemove.has(j)) {
-                    let localThreshold = Math.max(((100 - articles.length)/100), SIMILARITY_THRESHOLD);
+                    let localThreshold = Math.max(((100 - articles.length) / 100), SIMILARITY_THRESHOLD);
                     const sameNews = await coveringSameNews(
                         articles[i].fullText,
                         articles[j].fullText,
@@ -1474,7 +1476,7 @@ const extractTopArticles = (results) => {
     let totalScore = 0;
     for (let i = 0; i < allRelevantArticles.length; i++) totalScore += allRelevantArticles[i].score;
 
-    let acceptableProportion = ((100 - relevantLength)/100);
+    let acceptableProportion = ((100 - relevantLength) / 100);
     // Get top articles whose total is at least 'acceptableProportion'% of total score
     let threshold = Math.floor(totalScore * acceptableProportion);
     let topArticles = [];
@@ -1661,9 +1663,12 @@ const crawlWebsites = async (cycleEndTime) => {
 
     const shuffledWebsites = shuffleArray([...websites]);
     const maxConcurrentWorkers = os.cpus().length;
+    MINIMUM_AMOUNT_WORKERS += Math.floor(maxConcurrentWorkers * 0.2);
     const websiteChunks = chunkArray(shuffledWebsites, maxConcurrentWorkers);
 
     console.log(`Creating ${maxConcurrentWorkers} worker(s)...`);
+    let startedWorkers = 0;  // Define startedWorkers here
+
     const workerPromises = websiteChunks.map((websiteChunk, index) => {
         console.log(`Worker ${index} assigned websites:`, websiteChunk);
         return createWorker({
@@ -1673,7 +1678,28 @@ const crawlWebsites = async (cycleEndTime) => {
         });
     });
 
-    console.log("All workers created. Starting crawl...");
+    console.log("All workers created. Waiting for workers to start...");
+
+    const allWorkersStarted = new Promise(resolve => {
+        const checkInterval = setInterval(() => {
+            if (startedWorkers === maxConcurrentWorkers) {
+                clearInterval(checkInterval);
+                resolve();
+            }
+        }, 100);
+    });
+
+    // Set up event listeners for 'started' messages
+    workers.forEach(worker => {
+        worker.once('message', (message) => {
+            if (message.type === 'started') {
+                startedWorkers++;
+            }
+        });
+    });
+
+    await allWorkersStarted;
+    console.log("All workers have started. Beginning monitoring...");
 
     const timeoutPromise = new Promise(resolve =>
         setTimeout(() => {
@@ -1682,33 +1708,46 @@ const crawlWebsites = async (cycleEndTime) => {
         }, cycleEndTime.getTime() - Date.now())
     );
 
+    const workerMonitoringPromise = new Promise((resolve) => {
+        const intervalId = setInterval(() => {
+            if (workers.length < MINIMUM_AMOUNT_WORKERS) {
+                console.log(`Number of active workers (${workers.length}) fell below minimum (${MINIMUM_AMOUNT_WORKERS}). Stopping crawl.`);
+                clearInterval(intervalId);
+                resolve('below_minimum');
+            }
+        }, 1000); // Check every second
+
+        Promise.all(workerPromises).then(() => {
+            clearInterval(intervalId);
+            resolve('all_completed');
+        });
+    });
+
     const raceResult = await Promise.race([
-        Promise.all(workerPromises),
+        workerMonitoringPromise,
         timeoutPromise
     ]);
 
-    console.log(`Race completed. Result: ${raceResult === 'timeout' ? 'Timeout' : 'All workers finished'}`);
+    console.log(`Race completed. Result: ${raceResult}`);
 
-    if (isMainThread) {
-        console.log("Collecting results from all workers...");
-        for (const workerPromise of workerPromises) {
-            try {
-                const workerResult = await workerPromise;
-                if (workerResult && workerResult.articles) {
-                    for (const [term, articles] of Object.entries(workerResult.articles)) {
-                        if (!allResults[term]) allResults[term] = [];
-                        for (const article of articles) {
-                            if (addLinkGlobally(article.link)) {
-                                allResults[term].push(article);
-                            }
+    console.log("Collecting results from all workers...");
+    for (const workerPromise of workerPromises) {
+        try {
+            const workerResult = await workerPromise;
+            if (workerResult && workerResult.articles) {
+                for (const [term, articles] of Object.entries(workerResult.articles)) {
+                    if (!allResults[term]) allResults[term] = [];
+                    for (const article of articles) {
+                        if (addLinkGlobally(article.link)) {
+                            allResults[term].push(article);
                         }
                     }
                 }
-            } catch (error) {
-                let err = new LightweightError(error);
-                console.error("Error retrieving worker results:", err);
-                err = null;
             }
+        } catch (error) {
+            let err = new LightweightError(error);
+            console.error("Error retrieving worker results:", err);
+            err = null;
         }
     }
 
@@ -1853,6 +1892,8 @@ if (isMainThread) {
 
         const results = {};
         for (const term of terms) results[term] = [];
+
+        parentPort.postMessage({ type: 'started' });
 
         for (const url of urlsToCrawl) {
             if (Date.now() >= cycleEndTime.getTime()) {
