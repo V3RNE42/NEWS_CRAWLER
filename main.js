@@ -29,7 +29,6 @@ const IGNORE_REDUNDANCY = config.text_analysis.ignore_redundancy;
 const MAX_RETRIES_PER_FETCH = 3; //to be managed by user configuration
 const INITIAL_DEALY = 500; //to be managed by user configuration
 const MINUTES_TO_CLOSE = 10 * 60000;
-let MINIMUM_AMOUNT_WORKERS = 1; //to be managed by user configuration
 let FALSE_ALARM = false;
 let BROWSER_PATH;
 
@@ -1663,7 +1662,7 @@ const crawlWebsites = async (cycleEndTime) => {
 
     const shuffledWebsites = shuffleArray([...websites]);
     const maxConcurrentWorkers = os.cpus().length;
-    MINIMUM_AMOUNT_WORKERS += Math.floor(maxConcurrentWorkers * 0.2);
+    let MINIMUM_AMOUNT_WORKERS = 1 + Math.floor(maxConcurrentWorkers * 0.2);
     const websiteChunks = chunkArray(shuffledWebsites, maxConcurrentWorkers);
 
     console.log(`Creating ${maxConcurrentWorkers} worker(s)...`);
