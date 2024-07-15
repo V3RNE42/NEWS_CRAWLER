@@ -1269,10 +1269,21 @@ async function crawlWebsite(url, terms, workerAddedLinks) {
 const chunkArray = (array, numChunks) => {
     let set = new Set(array);
     array = Array.from(set);
+    
+    if (numChunks <= 0) return [];
+    if (numChunks >= array.length) return array.map(item => [item]);
+
     const chunks = Array.from({ length: numChunks }, () => []);
-    array.forEach((item, index) => {
-        chunks[index % numChunks].push(item);
-    });
+    const chunkSize = Math.floor(array.length / numChunks);
+    const remainder = array.length % numChunks;
+    
+    let index = 0;
+    for (let i = 0; i < numChunks; i++) {
+        let size = chunkSize + (i < remainder ? 1 : 0);
+        chunks[i] = array.slice(index, index + size);
+        index += size;
+    }
+    
     return chunks;
 };
 
@@ -1662,7 +1673,7 @@ const crawlWebsites = async (cycleEndTime) => {
 
     const shuffledWebsites = shuffleArray([...websites]);
     const maxConcurrentWorkers = os.cpus().length;
-    let MINIMUM_AMOUNT_WORKERS = 1 + Math.floor(maxConcurrentWorkers * 0.2);
+    let MINIMUM_AMOUNT_WORKERS = 12;//1 + Math.floor(maxConcurrentWorkers * 0.2);
     const websiteChunks = chunkArray(shuffledWebsites, maxConcurrentWorkers);
 
     console.log(`Creating ${maxConcurrentWorkers} worker(s)...`);
