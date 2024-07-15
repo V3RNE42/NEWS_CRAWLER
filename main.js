@@ -25,6 +25,7 @@ const LANGUAGE = config.text_analysis.language;
 const SENSITIVITY = config.text_analysis.topic_sensitivity;
 const MAX_TOKENS_PER_CALL = config.openai.max_tokens_per_call;
 const SIMILARITY_THRESHOLD = config.text_analysis.max_similarity;
+const IGNORE_REDUNDANCY = config.text_analysis.ignore_redundancy;
 const MAX_RETRIES_PER_FETCH = 3; //to be managed by user configuration
 const INITIAL_DEALY = 500; //to be managed by user configuration
 const MINUTES_TO_CLOSE = 10 * 60000;
@@ -200,15 +201,13 @@ async function extractArticleText(url) {
         await browser.close();
 
         if (articleHtml === EMPTY_STRING) {
-            const response = await fetchWithRetry(url);
-            articleHtml = await response.text();
+            articleHtml = await fetchTextWithRetry(url);
         }
 
         return cleanText(articleHtml);
     } catch (error) {
         try {
-            const response = await fetchWithRetry(url);
-            const html = await response.text();
+            const html = await fetchTextWithRetry(url);
             return cleanText(html);
         } catch (fetchError) {
             console.error(`Fetch error for ${url}: ${fetchError.message}`);
@@ -691,6 +690,19 @@ function isRecent(dateText) {
     return false;
 }
 
+/** Wrapper function to get the text data of a given URL
+ * @param {string} url 
+ * @returns {string} The text data      */
+async function fetchTextWithRetry(url) {
+    const response = await fetchWithRetry(url);
+    if (typeof response === 'string') {
+        return response;
+    } else if (response && typeof response.data === 'string') {
+        return response.data;
+    } else {
+        throw new Error('Unexpected response format');
+    }
+}
 
 /** Fetches data from a given URL with retry logic.
  * @param {string} url - The URL to fetch data from.
@@ -973,25 +985,84 @@ function extractFullText(item) {
     return cleanText(fullText);
 }
 
+
+/** Check if the given item is an opinion article based on category, title, and link.
+ * @param {Object} originalItem - The original item to check for being an opinion article.
+ * @return {boolean} Returns true if the item is an opinion article, false otherwise.   */
+function isOpinionArticle(originalItem) {
+    if (originalItem.category) {
+        const categories = Array.isArray(originalItem.category) ? originalItem.category : [originalItem.category];
+        if (categories.some(cat => typeof cat === 'string' && cat.toLowerCase() === 'opinión')) {
+            return true;
+        }
+    }
+
+    const opinionKeywords = ['opinión', 'editorial', 'columna', 'punto de vista'];
+    if (originalItem.title && typeof originalItem.title === 'string' && 
+        opinionKeywords.some(keyword => originalItem.title.toLowerCase().includes(keyword))) {
+        return true;
+    }
+
+    const link = extractLink(originalItem.link);
+    if (link && urlContainsOpinion(link)) {
+        return true;
+    }
+
+    return false;
+}
+
+function normalizeItem(item) {
+    return {
+        title: cleanText(item.title || ''),
+        link: extractLink(item.link || item.guid),
+        date: item.pubDate || item.updated || item.published,
+        fullText: extractFullText(item)
+    };
+}
+
 /** Extracts a link from the provided linkData.
  * @param {any} linkData - The input data to extract the link from.
  * @return {string | null} The extracted link or null if unable to extract. */
-function extractLink(linkData) {
-    if (typeof linkData === 'string') {
-        return linkData;
+function extractLink(item) {
+    if (typeof item === 'string') {
+        return item;
     }
 
-    if (Array.isArray(linkData)) {
-        // If it's an array, prefer the 'alternate' link, or take the first one
-        const alternateLink = linkData.find(l => l['@_rel'] === 'alternate');
-        linkData = alternateLink || linkData[0];
+    if (!item) {
+        return null;
     }
 
-    if (linkData && typeof linkData === 'object') {
-        return linkData['@_href'] || null;
+    if (Array.isArray(item)) {
+        return item.map(subItem => extractLink(subItem)).filter(link => link !== null);
     }
 
-    console.error('Unable to extract link from:', linkData);
+    if (item.link) {
+        if (typeof item.link === 'string') {
+            return item.link;
+        }
+        if (Array.isArray(item.link)) {
+            const alternateLink = item.link.find(l => l['@_rel'] === 'alternate');
+            return alternateLink ? alternateLink['@_href'] : (item.link[0] ? item.link[0]['@_href'] : null);
+        }
+    }
+
+    if (item.description && item.description.link) {
+        return item.description.link;
+    }
+
+    if (item.guid) {
+        if (typeof item.guid === 'string') {
+            return item.guid;
+        }
+        if (item.guid['@_isPermaLink'] === true && item.guid['#text']) {
+            return item.guid['#text'];
+        }
+    }
+
+    if (item.item) {
+        return extractLink(item.item);
+    }
+
     return null;
 }
 
@@ -1025,58 +1096,65 @@ async function scrapeRSSFeed(feedUrl, workerAddedLinks) {
         let items = feed.item || feed.entry;
 
         if (!items || items.length === 0) {
-            console.error('No items found in feed:', JSON.stringify(jsonObj, null, 2));
             return results;
+        }
+
+        if (!Array.isArray(items)) {
+            items = [items];
         }
 
         for (let item of items) {
             if (globalStopFlag) break;
 
-            let link = extractLink(item.link);
-            if (!link) {
-                console.error('Invalid link format for item:', item);
-                continue;
-            }
-            link = normalizeUrl(link);
-            if (!workerAddedLinks.has(link)) {
-                const title = cleanText(item.title);
-                const fullText = extractFullText(item);
-                const date = item.pubDate || item.updated;
+            try {
+                let link = extractLink(item);
+                
+                if (Array.isArray(link)) {
+                    link = link[0];
+                }
 
-                if (!isRecent(date)) continue;
-                if (urlContainsOpinion(link)) continue;
-                if (!addLinkGlobally(link)) {
-                    console.log(`Skipping globally duplicate RSS link: ${link}`);
+                if (!link) {
+                    console.error('Invalid link format for item:', item);
                     continue;
                 }
 
-                const { score, mostCommonTerm } = relevanceScoreAndMaxCommonFoundTerm(title, fullText);
+                link = normalizeUrl(link);
 
-                if (score > 0) {
-                    workerAddedLinks.add(link);
-                    console.log(`RSS-feed Added article! - ${link}`);
+                if (!workerAddedLinks.has(link)) {
+                    const title = cleanText(item.title);
+                    const fullText = extractFullText(item);
+                    const date = item.pubDate || item.updated;
 
-                    results[mostCommonTerm].push({
-                        title,
-                        link,
-                        summary: STRING_PLACEHOLDER,
-                        score,
-                        term: mostCommonTerm,
-                        fullText,
-                        date
-                    });
-                } else {
-                    console.log('ZERO SCORE');
+                    if (!isRecent(date)) continue;
+                    if (isOpinionArticle(item)) continue;
+                    if (!addLinkGlobally(link)) continue;
+
+                    const { score, mostCommonTerm } = relevanceScoreAndMaxCommonFoundTerm(title, fullText);
+
+                    if (score > 0) {
+                        workerAddedLinks.add(link);
+                        console.log(`RSS-feed Added article! - ${link}`);
+
+                        results[mostCommonTerm].push({
+                            title,
+                            link,
+                            summary: STRING_PLACEHOLDER,
+                            score,
+                            term: mostCommonTerm,
+                            fullText,
+                            date
+                        });
+                    }
                 }
-            } else {
-                console.log(`RSS-feed Already added article! - ${link}`);
+            } catch (error) {
+                console.error('Error processing item:', error, item);
+                continue;
             }
         }
 
         return results;
     } catch (error) {
         console.error('Error parsing RSS feed:', error);
-        error = null;
         return results;
     }
 }
@@ -1111,13 +1189,10 @@ async function crawlWebsite(url, terms, workerAddedLinks) {
                         const link = normalizeUrl(linkElement.attr("href"));
                         const dateText = dateElement.text().trim();
 
-                        if (workerAddedLinks.has(link)) {
-                            console.log(`Skipping duplicate link - ${link}`);
-                        } else {
+                        if (!workerAddedLinks.has(link)) {
                             if (!isWebsiteValid(url, link) || !isRecent(dateText)) continue;
 
                             if (!addLinkGlobally(link)) {
-                                console.log(`Skipping globally duplicate link: ${link}`);
                                 continue;
                             }
 
@@ -1141,8 +1216,6 @@ async function crawlWebsite(url, terms, workerAddedLinks) {
                                         fullText: articleContent,
                                         date: dateText
                                     });
-                                } else {
-                                    console.log("ZERO SCORE");
                                 }
 
                                 articleContent = null; // Clear articleContent to free up memory
@@ -1203,7 +1276,9 @@ const chunkArray = (array, numChunks) => {
 };
 
 /** Detects if an URL leads to an opinion */
-const urlContainsOpinion = (url) => url.includes('#comment') || url.includes('/opinion/');
+const urlContainsOpinion = (url) => {
+    return url ? url.toLowerCase().includes('#comment') || url.toLowerCase().includes('/opinion/') : false;
+}
 
 function isWebsiteValid(baseUrl, fullLink) {
 
@@ -1355,8 +1430,6 @@ const loadPreviousResults = () => {
                 articles.forEach(article => {
                     if (addLinkGlobally(article.link)) {
                         addedLinks.add(article.link);
-                    } else {
-                        console.log(`Skipping duplicate from previous results: ${article.link}`);
                     }
                 });
             }
@@ -1373,28 +1446,41 @@ const loadPreviousResults = () => {
     }
 };
 
-/**
- * Extracts the top articles from the given results.
- *
+/** Extracts the top articles from the given results.
  * @param {Object} results - An object containing arrays of articles for each term.
  * @return {Array} An array of the top articles, with a maximum length determined by the square root of the total number of articles.   */
 const extractTopArticles = (results) => {
     console.log("Extracting top articles...");
-    let allArticles = [];
-    for (let articles of Object.values(results)) {
-        allArticles.push(...articles);
+    let allRelevantArticles = [];
+    for (let [term, articles] of Object.entries(results)) {
+        if (articles.length === 0) continue;
+        let mostRelevant;
+        if (articles.length > 1) {
+            mostRelevant = articles.sort((a, b) => b.score - a.score)[0];
+        } else {
+            mostRelevant = articles[0];
+        }
+        allRelevantArticles.push(mostRelevant);
     }
-    allArticles.sort((a, b) => b.score - a.score);
 
-    let potentialReturn = allArticles.slice(0, Math.floor(Math.sqrt(allArticles.length)));
+    allRelevantArticles.sort((a, b) => b.score - a.score);
+
+    let relevantLength = allRelevantArticles.length;
+
+    let potentialReturn = allRelevantArticles.slice(0, Math.floor(Math.sqrt(allRelevantArticles.length)));
+
+    potentialReturn = potentialReturn.length > 0 ? potentialReturn : allRelevantArticles;
 
     let totalScore = 0;
-    for (let i = 0; i < allArticles.length; i++) totalScore += allArticles[i].score;
-    let threshold = Math.floor(totalScore * 0.8); // Get top articles whose total is at least 80% of total score
+    for (let i = 0; i < allRelevantArticles.length; i++) totalScore += allRelevantArticles[i].score;
+
+    let acceptableProportion = ((100 - relevantLength)/100);
+    // Get top articles whose total is at least 'acceptableProportion'% of total score
+    let threshold = Math.floor(totalScore * acceptableProportion);
     let topArticles = [];
-    while (allArticles.length > 0 && threshold > 0) {
-        threshold -= allArticles[0].score;
-        topArticles.push(allArticles.shift());
+    while (allRelevantArticles.length > 0 && threshold > 0) {
+        threshold -= allRelevantArticles[0].score;
+        topArticles.push(allRelevantArticles.shift());
     }
     // get the smaller amount of topArticles within a sensible range
     return potentialReturn.length < topArticles.length ? potentialReturn : topArticles;
@@ -1614,8 +1700,6 @@ const crawlWebsites = async (cycleEndTime) => {
                         for (const article of articles) {
                             if (addLinkGlobally(article.link)) {
                                 allResults[term].push(article);
-                            } else {
-                                console.log(`Skipping duplicate from worker results: ${article.link}`);
                             }
                         }
                     }
@@ -1626,8 +1710,6 @@ const crawlWebsites = async (cycleEndTime) => {
                 err = null;
             }
         }
-    } else {
-        console.log("Not main thread. Skipping worker results collection...");
     }
 
     console.log("All results collected. Terminating workers...");
@@ -1644,7 +1726,7 @@ const crawlWebsites = async (cycleEndTime) => {
  * @param {Object} results - The results to be saved.
  * @return {Promise<boolean>} - A promise that resolves to a boolean indicating if the crawling is complete.    */
 const saveResults = async (results, emailTime) => {
-    await sleep(60000);
+    await sleep(30000);
     console.log("Saving results...");
     const resultsPath = path.join(__dirname, CRAWLED_RESULTS_JSON);
     const flagPath = path.join(__dirname, CRAWL_COMPLETE_FLAG);
@@ -1656,7 +1738,9 @@ const saveResults = async (results, emailTime) => {
     const thisIsTheTime = closeToEmailingTime(emailTime);
     if (thisIsTheTime) {
         results = await removeIrrelevantArticles(results);
-        results = await removeRedundantArticles(results);
+        if (!IGNORE_REDUNDANCY) {
+            results = await removeRedundantArticles(results);
+        }
         topArticles = extractTopArticles(results);
         numTopArticles = topArticles.length;
         for (let i = 0; i < numTopArticles; i++) {
