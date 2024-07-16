@@ -1018,9 +1018,6 @@ function isOpinionArticle(originalItem) {
     return false;
 }
 
-/** Extracts a link from the provided linkData.
- * @param {any} linkData - The input data to extract the link from.
- * @return {string | null} The extracted link or null if unable to extract. */
 function extractLink(item) {
     if (typeof item === 'string') {
         return item;
@@ -1040,7 +1037,13 @@ function extractLink(item) {
         }
         if (Array.isArray(item.link)) {
             const alternateLink = item.link.find(l => l['@_rel'] === 'alternate');
-            return alternateLink ? alternateLink['@_href'] : (item.link[0] ? item.link[0]['@_href'] : null);
+            if (alternateLink && alternateLink['@_href']) {
+                return alternateLink['@_href'];
+            }
+            return item.link[0] && item.link[0]['@_href'] ? item.link[0]['@_href'] : null;
+        }
+        if (typeof item.link === 'object' && item.link['@_href']) {
+            return item.link['@_href'];
         }
     }
 
@@ -1056,15 +1059,15 @@ function extractLink(item) {
             return item.guid['#text'];
         }
     }
-    
+
     if (item.item) {
         return extractLink(item.item);
     }
-    
-    // If all else fails, extract link via RegExp 
+
+    // If all else fails, extract link via RegExp
     if (typeof item === 'object') {
         const linkRegex = /(https?:\/\/(?:www\.|(?!www))[a-zA-Z0-9][a-zA-Z0-9-]+[a-zA-Z0-9]\.[^\s]{2,}|www\.[a-zA-Z0-9][a-zA-Z0-9-]+[a-zA-Z0-9]\.[^\s]{2,})/g;
-        const linkMatch = item.toString().match(linkRegex);
+        const linkMatch = JSON.stringify(item).match(linkRegex);
         if (linkMatch && linkMatch.length > 0) {
             console.log('++++++++ Link obtained through RegExp');
             return linkMatch[0];
@@ -1146,7 +1149,9 @@ async function scrapeRSSFeed(feedUrl, workerAddedLinks) {
                     fullText = null;
                     combinedText = null;
 
-                    if (score > 0 && isRelevant) {
+                    if (score == 1 && !isRelevant) continue;
+
+                    if (score > 0) {
                         workerAddedLinks.add(link);
                         console.log(`RSS-feed Added article! - ${link}`);
 
@@ -1226,8 +1231,10 @@ async function crawlWebsite(url, terms, workerAddedLinks) {
             
                                 fullText = null;
                                 combinedText = null;
+
+                                if (score == 1 && !isRelevant) continue;
             
-                                if (score > 0 && isRelevant) {
+                                if (score > 0) {
                                     workerAddedLinks.add(link);
                                     console.log(`Added article! - ${link}`);
 
@@ -1409,7 +1416,8 @@ const removeRedundantArticles = async (results) => {
  * @param {string} text - The text to be checked for relevance.
  * @return {boolean} Returns true if the text is relevant, false otherwise. */
 function isTextRelevant(text) {
-    for (const term of terms) {
+    for (let term of terms) {
+        term = term.toLowerCase();
         const regex = new RegExp(`\\b${term}\\b`, 'gi');
         const matches = text.match(regex) || [];
         if (matches.length > 1) {
