@@ -16,7 +16,6 @@ const { es, enUS } = require('date-fns/locale');
 let { terms, websites } = require("./terminos");
 const config = require("./config.json");
 const { getMainTopics, sanitizeHtml } = require("./text_analysis/topics_extractor");
-const { coveringSameNews } = require("./text_analysis/natural_processing");
 const { findValidChromiumPath } = require("./browser/browserPath");
 
 //IMPORTANT CONSTANTS AND SETTINGS
@@ -24,7 +23,6 @@ const openai = new OpenAI({ apiKey: config.openai.api_key });
 const LANGUAGE = config.text_analysis.language;
 const SENSITIVITY = config.text_analysis.topic_sensitivity;
 const MAX_TOKENS_PER_CALL = config.openai.max_tokens_per_call;
-const SIMILARITY_THRESHOLD = config.text_analysis.max_similarity;
 const IGNORE_REDUNDANCY = config.text_analysis.ignore_redundancy;
 const MAX_RETRIES_PER_FETCH = 3; //to be managed by user configuration
 const INITIAL_DEALY = 500; //to be managed by user configuration
@@ -740,15 +738,17 @@ async function fetchWithRetry(url, retries = 0, initialDelay = INITIAL_DEALY) {
  * @param {string} articleContent - The content of the article.
  * @return {object} An object containing the score and the most common term.
  *     - {number} score: The relevance score.
- *     - {string} mostCommonTerm: The most common term found in the text.   */
+ *     - {string} mostCommonTerm: The most common term found in the text.   
+ *     - {number} termCount: The cumulative sum of all the times a term has been found within the text */
 const relevanceScoreAndMaxCommonFoundTerm = (title, articleContent) => {
     const text = (title + ' ' + articleContent).toLowerCase();
-    let score = 0, mostCommonTerm = '', maxCommonFoundTermCount = 0;
+    let score = 0, mostCommonTerm = '', maxCommonFoundTermCount = 0, cumulativeTermCount = 0;
 
     for (const term of terms) {
         const regex = new RegExp("\\b" + term + "\\b", 'ig');
         const matches = text.match(regex) || [];
         const termCount = matches.length;
+        cumulativeTermCount += termCount;
         if (termCount > 0) {
             score++; // Increment for each term found at least once
             if (termCount > maxCommonFoundTermCount) {
@@ -758,7 +758,7 @@ const relevanceScoreAndMaxCommonFoundTerm = (title, articleContent) => {
         }
     }
 
-    return { score, mostCommonTerm };
+    return { score, mostCommonTerm, termCount: cumulativeTermCount };
 };
 
 /** Normalizes a URL by removing the trailing slash if it exists.
@@ -1018,14 +1018,14 @@ function isOpinionArticle(originalItem) {
     return false;
 }
 
-function normalizeItem(item) {
-    return {
-        title: cleanText(item.title || ''),
-        link: extractLink(item.link || item.guid),
-        date: item.pubDate || item.updated || item.published,
-        fullText: extractFullText(item)
-    };
-}
+// function normalizeItem(item) {
+//     return {
+//         title: cleanText(item.title || ''),
+//         link: extractLink(item.link || item.guid),
+//         date: item.pubDate || item.updated || item.published,
+//         termCount extractFullText(item)
+//     };
+// }
 
 /** Extracts a link from the provided linkData.
  * @param {any} linkData - The input data to extract the link from.
@@ -1127,18 +1127,22 @@ async function scrapeRSSFeed(feedUrl, workerAddedLinks) {
 
                 link = normalizeUrl(link);
 
-                if (!workerAddedLinks.has(link)) {
+                if (!addLinkGlobally(link)) {
                     const title = cleanText(item.title);
-                    const fullText = extractFullText(item);
+                    let fullText = extractFullText(item);
                     const date = item.pubDate || item.updated;
 
                     if (!isRecent(date)) continue;
                     if (isOpinionArticle(item)) continue;
-                    if (!addLinkGlobally(link)) continue;
+                    if (!workerAddedLinks.has(link)) continue;
 
-                    const { score, mostCommonTerm } = relevanceScoreAndMaxCommonFoundTerm(title, fullText);
+                    const { score, mostCommonTerm, termCount } = relevanceScoreAndMaxCommonFoundTerm(title, fullText);
 
-                    if (score > 0) {
+                    const isRelevant = isTextRelevant(title, fullText);
+
+                    fullText = null;
+
+                    if (score > 0 && isRelevant) {
                         workerAddedLinks.add(link);
                         console.log(`RSS-feed Added article! - ${link}`);
 
@@ -1148,7 +1152,7 @@ async function scrapeRSSFeed(feedUrl, workerAddedLinks) {
                             summary: STRING_PLACEHOLDER,
                             score,
                             term: mostCommonTerm,
-                            fullText,
+                            termCount,
                             date
                         });
                     }
@@ -1200,18 +1204,23 @@ async function crawlWebsite(url, terms, workerAddedLinks) {
                         const link = normalizeUrl(linkElement.attr("href"));
                         const dateText = dateElement.text().trim();
 
-                        if (!workerAddedLinks.has(link)) {
+                        if (!addLinkGlobally(link)) {
                             if (!isWebsiteValid(url, link) || !isRecent(dateText)) continue;
 
-                            if (!addLinkGlobally(link)) {
+                            if (!workerAddedLinks.has(link)) {
                                 continue;
                             }
 
                             try {
-                                let articleContent = await extractArticleText(link);
-                                const { score, mostCommonTerm } = relevanceScoreAndMaxCommonFoundTerm(title, articleContent);
+                                let fullText = await extractArticleText(link);
 
-                                if (score > 0) {
+                                const { score, mostCommonTerm, termCount } = relevanceScoreAndMaxCommonFoundTerm(title, fullText);
+
+                                const isRelevant = isTextRelevant(title, fullText);
+            
+                                fullText = null;
+            
+                                if (score > 0 && isRelevant) {
                                     workerAddedLinks.add(link);
                                     console.log(`Added article! - ${link}`);
 
@@ -1224,7 +1233,7 @@ async function crawlWebsite(url, terms, workerAddedLinks) {
                                         summary: STRING_PLACEHOLDER,
                                         score,
                                         term: mostCommonTerm,
-                                        fullText: articleContent,
+                                        termCount,
                                         date: dateText
                                     });
                                 }
@@ -1351,21 +1360,31 @@ const removeRedundantArticles = async (results) => {
             let unique = true;
             for (let j = 0; j < articles.length; j++) {
                 if (i !== j && !toRemove.has(j)) {
-                    let localThreshold = Math.max(((100 - articles.length) / 100), SIMILARITY_THRESHOLD);
-                    const sameNews = await coveringSameNews(
-                        articles[i].fullText,
-                        articles[j].fullText,
-                        LANGUAGE,
-                        localThreshold
-                    );
-                    if (sameNews || (articles[i].link == articles[j].link)) {
+                    if (articles[i].link == articles[j].link) {
                         unique = false;
                         if (articles[i].score < articles[j].score) {
                             toRemove.add(i);
-                        } else {
+                        } else if (articles[i].score > articles[j].score) {
                             toRemove.add(j);
+                        } else if (articles[i].termCount > articles[j].termCount) {
+                            toRemove.add(j);
+                        } else {
+                            toRemove.add(i);
                         }
-                        break; // Stop inner loop as we found a duplicate
+                        break;
+                    }
+                    if (articles[i].title == articles[j].title) {
+                        unique = false;
+                        if (articles[i].score < articles[j].score) {
+                            toRemove.add(i);
+                        } else if (articles[i].score > articles[j].score) {
+                            toRemove.add(j);
+                        } else if (articles[i].termCount > articles[j].termCount) {
+                            toRemove.add(j);
+                        } else {
+                            toRemove.add(i);
+                        }
+                        break;
                     }
                 }
             }
@@ -1583,9 +1602,10 @@ const sendEmail = async (emailTime) => {
         let link = EMPTY_STRING, summary = EMPTY_STRING;
         if (topArticles[i].summary === STRING_PLACEHOLDER ||
             topArticles[i].summary.includes(FAILED_SUMMARY_MSSG)) {
+            let fullText = await extractArticleText(topArticles[i].link)
             ({ url: link, response: summary } = await summarizeText(
                 topArticles[i].link,
-                topArticles[i].fullText,
+                fullText,
                 topArticles.length,
                 topArticles[i].title
             ));
@@ -1815,11 +1835,13 @@ const saveResults = async (results, emailTime) => {
         for (let i = 0; i < numTopArticles; i++) {
             if (topArticles[i].summary === STRING_PLACEHOLDER ||
                 topArticles[i].summary.includes(FAILED_SUMMARY_MSSG)) {
+                let fullText = await extractArticleText(topArticles[i].link)
                 ({ url: link, response: summary } = await summarizeText(
                     topArticles[i].link,
-                    topArticles[i].fullText,
+                    fullText,
                     numTopArticles,
-                    topArticles[i].title));
+                    topArticles[i].title
+                ));
                 topArticles[i].summary = summary;
                 topArticles[i].link = link !== EMPTY_STRING ? link : topArticles[i].link;
             }
