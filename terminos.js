@@ -340,7 +340,6 @@ module.exports = {
         "Tareas de reconocimiento",
         "Tareas de vigilancia",
         "Teravatios",
-        "TW",
         "Tecnología militar",
         "Terminales de carga",
         "Terrorismo de extrema derecha",
