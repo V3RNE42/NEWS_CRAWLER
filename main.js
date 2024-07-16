@@ -1426,16 +1426,15 @@ async function removeIrrelevantArticles(results) {
 
     for (const [term, articles] of Object.entries(results)) {
         for (let article of articles) {
-            if (article.fullText === '') {
-                try {
-                    article.fullText = await extractArticleText(article.link);
-                } catch (error) {
-                    console.error(`Error extracting text from ${article.link}: ${error.message}`);
-                    continue;
-                }
+            let fullText;
+            try {
+                fullText = await extractArticleText(article.link);
+            } catch (error) {
+                console.error(`Error extracting text from ${article.link}: ${error.message}`);
+                continue;
             }
 
-            let textToAnalyze = article.title + ' ' + article.fullText;
+            let textToAnalyze = article.title + ' ' + fullText;
 
             let mainTopics = getMainTopics(textToAnalyze, LANGUAGE, SENSITIVITY);
             if (!mainTopics.some(topic => terms.includes(topic.toLowerCase())) && article.score === 1) {
