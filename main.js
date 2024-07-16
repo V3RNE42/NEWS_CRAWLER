@@ -1018,15 +1018,6 @@ function isOpinionArticle(originalItem) {
     return false;
 }
 
-// function normalizeItem(item) {
-//     return {
-//         title: cleanText(item.title || ''),
-//         link: extractLink(item.link || item.guid),
-//         date: item.pubDate || item.updated || item.published,
-//         termCount extractFullText(item)
-//     };
-// }
-
 /** Extracts a link from the provided linkData.
  * @param {any} linkData - The input data to extract the link from.
  * @return {string | null} The extracted link or null if unable to extract. */
@@ -1065,9 +1056,19 @@ function extractLink(item) {
             return item.guid['#text'];
         }
     }
-
+    
     if (item.item) {
         return extractLink(item.item);
+    }
+    
+    // If all else fails, extract link via RegExp 
+    if (typeof item === 'object') {
+        const linkRegex = /(https?:\/\/(?:www\.|(?!www))[a-zA-Z0-9][a-zA-Z0-9-]+[a-zA-Z0-9]\.[^\s]{2,}|www\.[a-zA-Z0-9][a-zA-Z0-9-]+[a-zA-Z0-9]\.[^\s]{2,})/g;
+        const linkMatch = item.toString().match(linkRegex);
+        if (linkMatch && linkMatch.length > 0) {
+            console.log('++++++++ Link obtained through RegExp');
+            return linkMatch[0];
+        }
     }
 
     return null;
@@ -1138,9 +1139,12 @@ async function scrapeRSSFeed(feedUrl, workerAddedLinks) {
 
                     const { score, mostCommonTerm, termCount } = relevanceScoreAndMaxCommonFoundTerm(title, fullText);
 
-                    const isRelevant = isTextRelevant(title, fullText);
+                    const combinedText = `${title} ${fullText}`;
+
+                    const isRelevant = isTextRelevant(combinedText);
 
                     fullText = null;
+                    combinedText = null;
 
                     if (score > 0 && isRelevant) {
                         workerAddedLinks.add(link);
@@ -1216,9 +1220,12 @@ async function crawlWebsite(url, terms, workerAddedLinks) {
 
                                 const { score, mostCommonTerm, termCount } = relevanceScoreAndMaxCommonFoundTerm(title, fullText);
 
-                                const isRelevant = isTextRelevant(title, fullText);
+                                const combinedText = `${title} ${fullText}`;
+
+                                const isRelevant = isTextRelevant(combinedText);
             
                                 fullText = null;
+                                combinedText = null;
             
                                 if (score > 0 && isRelevant) {
                                     workerAddedLinks.add(link);
