@@ -166,9 +166,7 @@ const todayDate = () => {
 
 const sleep = async (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-/**
- * Extracts the text content of an article from a given URL.
- *
+/** Extracts the text content of an article from a given URL.
  * @param {string} url - The URL of the article.
  * @return {Promise<string>} A Promise that resolves to the extracted text content. */
 async function extractArticleText(url) {
@@ -333,9 +331,7 @@ async function getNonChunkedOpenAIResponse(text, topic, maxTokens) {
 }
 
 
-/**
- * Retrieves an OpenAI response for the given text and title.
- *
+/** Retrieves an OpenAI response for the given text and title.
  * @param {string} text - The text to be summarized.
  * @param {string} topic - The topic of the news article.
  * @param {number} maxTokens - The maximum number of tokens allowed in the response.
@@ -353,9 +349,7 @@ async function getOpenAIResponse(text, topic, maxTokens) {
     return getNonChunkedOpenAIResponse(text, topic, maxTokens);
 }
 
-/**
- * Retrieves the content of a webpage behind a paywall by using a proxy website.
- *
+/** Retrieves the content of a webpage behind a paywall by using a proxy website.
  * @param {string} link - The URL of the webpage.
  * @return {Promise<{url: string, content: string}>} A promise that resolves to an object containing the content of the webpage 
  * and the URL of the retrieved content if it is successfully retrieved, or an empty string if an error occurs.     */
@@ -384,9 +378,7 @@ async function getProxiedContent(link) {
     }
 }
 
-/**
- * Retrieves a summary of the text using OpenAI's GPT-4 model.
- *
+/** Retrieves a summary of the text using OpenAI's GPT-4 model.
  * @param {string} link - The URL of the webpage
  * @param {string} fullText - The text content of the news article
  * @param {number} numberOfLinks - The total number of links under the same TERM search
@@ -415,10 +407,7 @@ const summarizeText = async (link, fullText, numberOfLinks, topic) => {
     return { url, response };
 };
 
-
-/**
- * Checks if a given date is recent.
- *
+/** Checks if a given date is recent.
  * @param {string} dateText - The date to be checked.
  * @return {boolean} Returns true if the date is recent, false otherwise.   */
 function isRecent(dateText) {
@@ -771,9 +760,7 @@ const normalizeUrl = (url) => {
     return url;
 };
 
-/**
- * Checks if the current time is close to the provided email end time.
- *
+/** Checks if the current time is close to the provided email end time.
  * @param {Date} emailEndTime - The end time for the email
  * @return {boolean} Returns true if the current time is close to the email end time, false otherwise   */
 function closeToEmailingTime(emailEndTime) {
@@ -885,7 +872,6 @@ function createWorker(workerData) {
 }
 
 /** Asynchronously detects and retrieves RSS feeds from the provided URL.
- *
  * @param {string} url - The URL to fetch the RSS feed from.
  * @return {Array} An array of RSS feed URLs extracted from the provided URL.           */
 async function detectRSS(url, baseUrl, rssFeeds = new Set(), depth = 0) {
@@ -944,7 +930,6 @@ async function sanitizeXML(xml) {
 }
 
 /** Extracts the full text content from the given item object based on a priority list of content fields.
- *
  * @param {object} item - The item object containing various content fields.
  * @return {string} The extracted full text content.        */
 function extractFullText(item) {
@@ -1018,6 +1003,9 @@ function isOpinionArticle(originalItem) {
     return false;
 }
 
+/** Extracts a link from the provided linkData.
+ * @param {any} linkData - The input data to extract the link from.
+ * @return {string | null} The extracted link or null if unable to extract. */
 function extractLink(item) {
     if (typeof item === 'string') {
         return item;
@@ -1037,13 +1025,7 @@ function extractLink(item) {
         }
         if (Array.isArray(item.link)) {
             const alternateLink = item.link.find(l => l['@_rel'] === 'alternate');
-            if (alternateLink && alternateLink['@_href']) {
-                return alternateLink['@_href'];
-            }
-            return item.link[0] && item.link[0]['@_href'] ? item.link[0]['@_href'] : null;
-        }
-        if (typeof item.link === 'object' && item.link['@_href']) {
-            return item.link['@_href'];
+            return alternateLink ? alternateLink['@_href'] : (item.link[0] ? item.link[0]['@_href'] : null);
         }
     }
 
@@ -1079,7 +1061,6 @@ function extractLink(item) {
 
 /** Asynchronously scrapes an RSS feed from the provided URL, extracts relevant article information,
  * and returns an array of articles.
- *
  * @param {string} feedUrl - The URL of the RSS feed to scrape.
  * @return {Array} An array of articles with title, link, date, content, score, summary, and full text.         */
 async function scrapeRSSFeed(feedUrl, workerAddedLinks) {
@@ -1142,14 +1123,24 @@ async function scrapeRSSFeed(feedUrl, workerAddedLinks) {
 
                     const { score, mostCommonTerm, termCount } = relevanceScoreAndMaxCommonFoundTerm(title, fullText);
 
-                    const combinedText = `${title} ${fullText}`;
+                    let combinedText = `${title} ${fullText}`;
 
-                    const isRelevant = isTextRelevant(combinedText);
+                    let numOfWords = countTokens(combinedText);
 
-                    fullText = null;
+                    let mainTopics = getMainTopics(combinedText, LANGUAGE, SENSITIVITY);
+
                     combinedText = null;
+                    fullText = null;
 
-                    if (score == 1 && !isRelevant) continue;
+                    if (!mainTopics.some(topic => terms.includes(topic.toLowerCase())) 
+                        && score === 1
+                        && termCount < Math.floor(Math.log(numOfWords))) 
+                    {
+                        console.log(`Irrelevant article discarded: ${link}`);
+                        continue;
+                    }
+
+                    mainTopics = null
 
                     if (score > 0) {
                         workerAddedLinks.add(link);
@@ -1225,14 +1216,22 @@ async function crawlWebsite(url, terms, workerAddedLinks) {
 
                                 const { score, mostCommonTerm, termCount } = relevanceScoreAndMaxCommonFoundTerm(title, fullText);
 
-                                const combinedText = `${title} ${fullText}`;
+                                let combinedText = `${title} ${fullText}`;
 
-                                const isRelevant = isTextRelevant(combinedText);
+                                let numOfWords = countTokens(combinedText);
             
-                                fullText = null;
+                                let mainTopics = getMainTopics(combinedText, LANGUAGE, SENSITIVITY);
+            
                                 combinedText = null;
-
-                                if (score == 1 && !isRelevant) continue;
+                                fullText = null;
+            
+                                if (!mainTopics.some(topic => terms.includes(topic.toLowerCase())) 
+                                    && score === 1
+                                    && termCount < Math.floor(Math.log(numOfWords))) 
+                                {
+                                    console.log(`Irrelevant article discarded: ${link}`);
+                                    continue;
+                                }
             
                                 if (score > 0) {
                                     workerAddedLinks.add(link);
@@ -1293,9 +1292,7 @@ async function crawlWebsite(url, terms, workerAddedLinks) {
     return results;
 }
 
-/**
- * Splits an array into a specified number of chunks.
- *
+/** Splits an array into a specified number of chunks.
  * @param {Array} array - The array to be split into chunks.
  * @param {number} numChunks - The number of chunks to create.
  * @return {Array<Array>} An array of chunks, each containing a portion of the original array.  */
@@ -1359,9 +1356,7 @@ function shuffleArray(array) {
     return array;
 }
 
-/**
- * Removes redundant articles from the given results object.
- *
+/** Removes redundant articles from the given results object.
  * @param {Object} results - An object containing articles grouped by terms.
  * @return {Promise<void>} A promise that resolves when the redundant articles have been removed.   */
 const removeRedundantArticles = async (results) => {
@@ -1411,69 +1406,7 @@ const removeRedundantArticles = async (results) => {
     return results;
 }
 
-
-/** Checks if the given text is relevant based on the occurrence of terms.
- * @param {string} text - The text to be checked for relevance.
- * @return {boolean} Returns true if the text is relevant, false otherwise. */
-function isTextRelevant(text) {
-    for (let term of terms) {
-        term = term.toLowerCase();
-        const regex = new RegExp(`\\b${term}\\b`, 'gi');
-        const matches = text.match(regex) || [];
-        if (matches.length > 1) {
-            return true;
-        }
-    }
-    return false;
-}
-
-/**
- * Arranges the articles from the given results object based on their terms.
- *
- * @param {Object} results - An object containing articles grouped by terms.
- * @return {Promise<Object>} - A promise that resolves to an object with articles reorganized by term */
-async function removeIrrelevantArticles(results) {
-    let reorganizedResults = {};
-
-    for (const term of Object.keys(results)) {
-        reorganizedResults[term] = [];
-    }
-
-    for (const [term, articles] of Object.entries(results)) {
-        for (let article of articles) {
-            let fullText;
-            try {
-                fullText = await extractArticleText(article.link);
-            } catch (error) {
-                console.error(`Error extracting text from ${article.link}: ${error.message}`);
-                continue;
-            }
-
-            let textToAnalyze = article.title + ' ' + fullText;
-            let numOfWords = countTokens(textToAnalyze);
-
-            let mainTopics = getMainTopics(textToAnalyze, LANGUAGE, SENSITIVITY);
-            
-            textToAnalyze = null;
-            fullText = null;
-
-            if (!mainTopics.some(topic => terms.includes(topic.toLowerCase())) 
-                && article.score === 1
-                && article.termCount < Math.floor(Math.log(numOfWords))) 
-            {
-                console.log(`Irrelevant article discarded: ${article.link}`);
-                continue;
-            }
-
-            reorganizedResults[term].push(article);
-        }
-    }
-
-    return reorganizedResults;
-}
-
-/**
- * Loads the previous results from the `crawled_results.json` file.
+/** Loads the previous results from the `crawled_results.json` file.
  * @return {Object} The previous results, or an empty object if the file doesn't exist or cannot be parsed. */
 const loadPreviousResults = () => {
     console.log("Loading previous results...");
@@ -1548,9 +1481,7 @@ const extractTopArticles = (results) => {
     return potentialReturn.length < topArticles.length ? potentialReturn : topArticles;
 };
 
-/**
- * Returns a string of the most common terms in the given object of articles, sorted by frequency and score.
- *
+/** Returns a string of the most common terms in the given object of articles, sorted by frequency and score.
  * @param {Object} allResults - An object containing arrays of articles for each term.
  * @return {string} A string of the most common terms, separated by '/' - DISCLAIMER: NORMALLY IT'S A SINGLE TERM        */
 function mostCommonTerms(allResults) {
@@ -1581,9 +1512,7 @@ function mostCommonTerms(allResults) {
     return topTerms.join('/');
 }
 
-/**
- * Loads the results from a JSON file.
- *
+/** Loads the results from a JSON file.
  * @return {Object} The loaded results, or null if the file doesn't exist.  */
 const loadResults = () => {
     console.log("Loading results...");
@@ -1847,7 +1776,6 @@ const saveResults = async (results, emailTime) => {
 
     const thisIsTheTime = closeToEmailingTime(emailTime);
     if (thisIsTheTime) {
-        results = await removeIrrelevantArticles(results);
         if (!IGNORE_REDUNDANCY) {
             results = await removeRedundantArticles(results);
         }
