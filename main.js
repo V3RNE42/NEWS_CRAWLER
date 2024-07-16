@@ -1435,9 +1435,17 @@ async function removeIrrelevantArticles(results) {
             }
 
             let textToAnalyze = article.title + ' ' + fullText;
+            let numOfWords = countTokens(textToAnalyze);
 
             let mainTopics = getMainTopics(textToAnalyze, LANGUAGE, SENSITIVITY);
-            if (!mainTopics.some(topic => terms.includes(topic.toLowerCase())) && article.score === 1) {
+            
+            textToAnalyze = null;
+            fullText = null;
+
+            if (!mainTopics.some(topic => terms.includes(topic.toLowerCase())) 
+                && article.score === 1
+                && article.termCount < Math.floor(Math.log(numOfWords))) 
+            {
                 console.log(`Irrelevant article discarded: ${article.link}`);
                 continue;
             }
