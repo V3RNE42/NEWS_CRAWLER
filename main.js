@@ -166,7 +166,9 @@ const todayDate = () => {
 
 const sleep = async (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-/** Extracts the text content of an article from a given URL.
+/**
+ * Extracts the text content of an article from a given URL.
+ *
  * @param {string} url - The URL of the article.
  * @return {Promise<string>} A Promise that resolves to the extracted text content. */
 async function extractArticleText(url) {
@@ -279,7 +281,10 @@ async function getChunkedOpenAIResponse(text, topic, maxTokens) {
 /** Counts the tokens of a string
  *  @param {String} text The text whose tokens are to be counted
  *  @returns {number} The amount of tokens      */
-const countTokens = (text) => text.trim().split(/\s+/).length;
+const countTokens = (text) => {
+    if (!text) return 0;
+    return text.trim().split(/\s+/).length;
+}
 
 
 /** Splits a text into chunks of a maximum number of tokens per call
@@ -331,7 +336,9 @@ async function getNonChunkedOpenAIResponse(text, topic, maxTokens) {
 }
 
 
-/** Retrieves an OpenAI response for the given text and title.
+/**
+ * Retrieves an OpenAI response for the given text and title.
+ *
  * @param {string} text - The text to be summarized.
  * @param {string} topic - The topic of the news article.
  * @param {number} maxTokens - The maximum number of tokens allowed in the response.
@@ -349,7 +356,9 @@ async function getOpenAIResponse(text, topic, maxTokens) {
     return getNonChunkedOpenAIResponse(text, topic, maxTokens);
 }
 
-/** Retrieves the content of a webpage behind a paywall by using a proxy website.
+/**
+ * Retrieves the content of a webpage behind a paywall by using a proxy website.
+ *
  * @param {string} link - The URL of the webpage.
  * @return {Promise<{url: string, content: string}>} A promise that resolves to an object containing the content of the webpage 
  * and the URL of the retrieved content if it is successfully retrieved, or an empty string if an error occurs.     */
@@ -378,7 +387,9 @@ async function getProxiedContent(link) {
     }
 }
 
-/** Retrieves a summary of the text using OpenAI's GPT-4 model.
+/**
+ * Retrieves a summary of the text using OpenAI's GPT-4 model.
+ *
  * @param {string} link - The URL of the webpage
  * @param {string} fullText - The text content of the news article
  * @param {number} numberOfLinks - The total number of links under the same TERM search
@@ -407,7 +418,10 @@ const summarizeText = async (link, fullText, numberOfLinks, topic) => {
     return { url, response };
 };
 
-/** Checks if a given date is recent.
+
+/**
+ * Checks if a given date is recent.
+ *
  * @param {string} dateText - The date to be checked.
  * @return {boolean} Returns true if the date is recent, false otherwise.   */
 function isRecent(dateText) {
@@ -697,6 +711,7 @@ async function fetchTextWithRetry(url) {
  * @return {Promise<any>} A Promise that resolves to the fetched data.
  * @throws {Error} If the maximum number of retries is reached. */
 async function fetchWithRetry(url, retries = 0, initialDelay = INITIAL_DEALY) {
+    let urlToFetch = normalizeUrl(url);
     if (globalStopFlag) {
         throw new LightweightError('Crawl stopped');
     }
@@ -704,21 +719,21 @@ async function fetchWithRetry(url, retries = 0, initialDelay = INITIAL_DEALY) {
         const randomDelay = Math.floor(Math.random() * initialDelay);
         await sleep(randomDelay);
         await rateLimiter.removeTokens(1);
-        const response = await axios.get(url, {
+        const response = await axios.get(urlToFetch, {
             headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+                'User-Agent': 'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36 Edg/91.0.864.59'
             },
             timeout: 15000
         });
         return response.data;
     } catch (error) {
         if (retries >= MAX_RETRIES_PER_FETCH) {
-            throw new LightweightError(`Failed to fetch ${url} after ${MAX_RETRIES_PER_FETCH} retries: ${error.message}`);
+            throw new LightweightError(`Failed to fetch ${urlToFetch} after ${MAX_RETRIES_PER_FETCH} retries: ${error.message}`);
         }
         const delay = initialDelay * Math.pow(3, retries);
-        console.log(`Attempt ${retries + 1} failed for ${url}. Retrying in ${delay}ms...`);
+        console.log(`Attempt ${retries + 1} failed for ${urlToFetch}. Retrying in ${delay}ms...`);
         await new Promise(resolve => setTimeout(resolve, delay));
-        return fetchWithRetry(url, retries + 1, delay);
+        return fetchWithRetry(urlToFetch, retries + 1, delay);
     }
 }
 
@@ -727,28 +742,93 @@ async function fetchWithRetry(url, retries = 0, initialDelay = INITIAL_DEALY) {
  * @param {string} articleContent - The content of the article.
  * @return {object} An object containing the score and the most common term.
  *     - {number} score: The relevance score.
- *     - {string} mostCommonTerm: The most common term found in the text.   
- *     - {number} termCount: The cumulative sum of all the times a term has been found within the text */
+ *     - {string} mostCommonTerm: The most common term found in the text. */
 const relevanceScoreAndMaxCommonFoundTerm = (title, articleContent) => {
-    const text = (title + ' ' + articleContent).toLowerCase();
-    let score = 0, mostCommonTerm = '', maxCommonFoundTermCount = 0, cumulativeTermCount = 0;
+    let text = (title + ' ' + articleContent).toLowerCase();
+    let termFrequencies = {};
+    let termPresence = {};
+    let totalWords = text.split(/\s+/).length;
+    let termCount = 0;
+    let presenceCount = 0;
+    let coOccurrenceCount = 0;
+    let mostCommonTerm = '';
+    let maxCommonFoundTermCount = 0;
 
-    for (const term of terms) {
-        const regex = new RegExp("\\b" + term + "\\b", 'ig');
-        const matches = text.match(regex) || [];
-        const termCount = matches.length;
-        cumulativeTermCount += termCount;
-        if (termCount > 0) {
-            score++; // Increment for each term found at least once
-            if (termCount > maxCommonFoundTermCount) {
-                mostCommonTerm = term;
-                maxCommonFoundTermCount = termCount;
-            }
+    // Initialize metrics
+    terms.forEach(term => {
+        termFrequencies[term] = 0;
+        termPresence[term] = 0;
+    });
+
+    // Calculate term frequencies, presence, and find most common term
+    terms.forEach(term => {
+        let regex = new RegExp("\\b" + term + "\\b", 'ig');
+        let matches = text.match(regex) || [];
+        let termCount = matches.length;
+        termFrequencies[term] = termCount;
+        termPresence[term] = termCount > 0 ? 1 : 0;
+        presenceCount += termPresence[term];
+        termCount += termCount;
+
+        if (termCount > maxCommonFoundTermCount) {
+            mostCommonTerm = term;
+            maxCommonFoundTermCount = termCount;
         }
+    });
+
+    // Check if any term has a frequency of at least 2
+    const hasMinimumFrequency = Object.values(termFrequencies).some(count => count >= 2);
+
+    if (!hasMinimumFrequency) {
+        return { score: 0, mostCommonTerm: '' };
     }
 
-    return { score, mostCommonTerm, termCount: cumulativeTermCount };
-};
+    // Calculate term density
+    let termDensity = termCount / totalWords;
+
+    // Calculate co-occurrence of terms
+    terms.forEach((term, index) => {
+        for (let i = index + 1; i < terms.length; i++) {
+            let otherTerm = terms[i];
+            let coOccurrences = 0;
+            let termRegex = new RegExp(`\\b${term}\\b`, 'gi');
+            let otherTermRegex = new RegExp(`\\b${otherTerm}\\b`, 'gi');
+            let termMatch, otherTermMatch;
+
+            while ((termMatch = termRegex.exec(text)) !== null) {
+                while ((otherTermMatch = otherTermRegex.exec(text)) !== null) {
+                    if (Math.abs(termMatch.index - otherTermMatch.index) <= 10) {
+                        coOccurrences++;
+                    }
+                }
+            }
+            coOccurrenceCount += coOccurrences;
+        }
+    });
+
+    // Calculate global relevance score
+    let termFrequencySum = Object.values(termFrequencies).reduce((a, b) => a + b, 0);
+    let termPresenceSum = Math.exp(presenceCount)/2;  // Exponential progression
+    let coOccurrenceSum = coOccurrenceCount;
+
+    let weights = {
+        frequency: 0.4,
+        presence: 0.3,   // Increased weight for presence
+        density: 0.2,
+        coOccurrence: 0.1
+    };
+
+    let globalRelevanceScore =
+        (weights.frequency * termFrequencySum) +
+        (weights.presence * termPresenceSum) +
+        (weights.density * termDensity) +
+        (weights.coOccurrence * coOccurrenceSum);
+
+    // Limit score to 4 decimals
+    globalRelevanceScore = parseFloat(globalRelevanceScore.toFixed(4));
+
+    return { score: globalRelevanceScore, mostCommonTerm };
+}
 
 /** Normalizes a URL by removing the trailing slash if it exists.
  * @param {string} url - The URL to be normalized.
@@ -760,7 +840,9 @@ const normalizeUrl = (url) => {
     return url;
 };
 
-/** Checks if the current time is close to the provided email end time.
+/**
+ * Checks if the current time is close to the provided email end time.
+ *
  * @param {Date} emailEndTime - The end time for the email
  * @return {boolean} Returns true if the current time is close to the email end time, false otherwise   */
 function closeToEmailingTime(emailEndTime) {
@@ -879,7 +961,7 @@ async function detectRSS(url, baseUrl, rssFeeds = new Set(), depth = 0) {
         return Array.from(rssFeeds);
     }
 
-    const MAX_DEPTH = 4;
+    const MAX_DEPTH = 3;
 
     if (depth > MAX_DEPTH) {
         return Array.from(rssFeeds);
@@ -930,9 +1012,10 @@ async function sanitizeXML(xml) {
 }
 
 /** Extracts the full text content from the given item object based on a priority list of content fields.
+ *
  * @param {object} item - The item object containing various content fields.
  * @return {string} The extracted full text content.        */
-function extractFullText(item) {
+const extractFullText = async (item, link = null) => {
     /** A priority list of possible content fields*/
     const contentFields = [
         'content:encoded',
@@ -961,9 +1044,15 @@ function extractFullText(item) {
     }
 
     if (fullText.length > 0) {
-        fullText = fullText.sort((a, b) => b.length - a.length)[0];
+        fullText = fullText.sort((a, b) => countTokens(b) - countTokens(a))[0];
     } else {
         fullText = null;
+    }
+
+    //If fullText is less than 100 words, try a different approach
+    if (countTokens(fullText) < 100) {
+        let potentialFullText = await extractArticleText(link);
+        fullText = countTokens(potentialFullText) > countTokens(fullText) ? potentialFullText : fullText;
     }
 
     // If no content found, concatenate title and description as fallback
@@ -977,11 +1066,10 @@ function extractFullText(item) {
     return cleanText(fullText);
 }
 
-
 /** Check if the given item is an opinion article based on category, title, and link.
  * @param {Object} originalItem - The original item to check for being an opinion article.
  * @return {boolean} Returns true if the item is an opinion article, false otherwise.   */
-function isOpinionArticle(originalItem) {
+function isOpinionArticle(originalItem, originalLink) {
     if (originalItem.category) {
         const categories = Array.isArray(originalItem.category) ? originalItem.category : [originalItem.category];
         if (categories.some(cat => typeof cat === 'string' && cat.toLowerCase() === 'opinión')) {
@@ -995,8 +1083,7 @@ function isOpinionArticle(originalItem) {
         return true;
     }
 
-    const link = extractLink(originalItem.link);
-    if (link && urlContainsOpinion(link)) {
+    if (originalLink && urlContainsOpinion(originalLink)) {
         return true;
     }
 
@@ -1007,32 +1094,24 @@ function isOpinionArticle(originalItem) {
  * @param {any} linkData - The input data to extract the link from.
  * @return {string | null} The extracted link or null if unable to extract. */
 function extractLink(item) {
-    if (typeof item === 'string') {
-        return item;
+    // First, check for a simple string link
+    if (typeof item.link === 'string') {
+        return item.link;
     }
 
-    if (!item) {
-        return null;
-    }
-
-    if (Array.isArray(item)) {
-        return item.map(subItem => extractLink(subItem)).filter(link => link !== null);
-    }
-
-    if (item.link) {
-        if (typeof item.link === 'string') {
-            return item.link;
+    // If link is an array, look for the 'alternate' link first, then 'self'
+    if (Array.isArray(item.link)) {
+        const alternateLink = item.link.find(l => l['@_rel'] === 'alternate');
+        if (alternateLink && alternateLink['@_href']) {
+            return alternateLink['@_href'];
         }
-        if (Array.isArray(item.link)) {
-            const alternateLink = item.link.find(l => l['@_rel'] === 'alternate');
-            return alternateLink ? alternateLink['@_href'] : (item.link[0] ? item.link[0]['@_href'] : null);
+        const selfLink = item.link.find(l => l['@_rel'] === 'self');
+        if (selfLink && selfLink['@_href']) {
+            return selfLink['@_href'];
         }
     }
 
-    if (item.description && item.description.link) {
-        return item.description.link;
-    }
-
+    // Check for guid
     if (item.guid) {
         if (typeof item.guid === 'string') {
             return item.guid;
@@ -1042,17 +1121,26 @@ function extractLink(item) {
         }
     }
 
-    if (item.item) {
-        return extractLink(item.item);
+    // Check for link in description
+    if (item.description && item.description.link) {
+        return item.description.link;
     }
 
-    // If all else fails, extract link via RegExp
+    // If item is an array, recursively check each element
+    if (Array.isArray(item)) {
+        for (const subItem of item) {
+            const link = extractLink(subItem);
+            if (link) return link;
+        }
+    }
+
+    // If all else fails, try to extract a link using regex
     if (typeof item === 'object') {
-        const linkRegex = /(https?:\/\/(?:www\.|(?!www))[a-zA-Z0-9][a-zA-Z0-9-]+[a-zA-Z0-9]\.[^\s]{2,}|www\.[a-zA-Z0-9][a-zA-Z0-9-]+[a-zA-Z0-9]\.[^\s]{2,})/g;
-        const linkMatch = JSON.stringify(item).match(linkRegex);
-        if (linkMatch && linkMatch.length > 0) {
-            console.log('++++++++ Link obtained through RegExp');
-            return linkMatch[0];
+        const linkRegex = /(https?:\/\/[^\s]+)/g;
+        const stringified = JSON.stringify(item);
+        const matches = stringified.match(linkRegex);
+        if (matches && matches.length > 0) {
+            return matches[0];
         }
     }
 
@@ -1062,10 +1150,11 @@ function extractLink(item) {
 /** Asynchronously scrapes an RSS feed from the provided URL, extracts relevant article information,
  * and returns an array of articles.
  * @param {string} feedUrl - The URL of the RSS feed to scrape.
- * @return {Array} An array of articles with title, link, date, content, score, summary, and full text.         */
+ * @param {Set} workerAddedLinks - A set of already processed links.
+ * @return {Object} An object with terms as keys and arrays of articles as values. */
 async function scrapeRSSFeed(feedUrl, workerAddedLinks) {
     let results = {};
-    terms.forEach(term => results[term] = []);
+    terms.forEach(term => results[term.toLowerCase()] = []);
 
     try {
         const feedData = await fetchWithRetry(feedUrl);
@@ -1080,14 +1169,19 @@ async function scrapeRSSFeed(feedUrl, workerAddedLinks) {
         const parser = new XMLParser(options);
         const jsonObj = parser.parse(sanitizedData);
 
-        if (!jsonObj.rss && !jsonObj.feed) {
-            throw new LightweightError("Feed not recognized as RSS 1 or 2.");
+        let items = [];
+
+        if (jsonObj.rss) {
+            items = jsonObj.rss.channel.item || [];
+        } else if (jsonObj.feed) {
+            items = jsonObj.feed.entry || [];
+        } else {
+            items = extractArticlesFromHTML(jsonObj);
+            console.log("Items obtenidos del HTML");
         }
 
-        const feed = jsonObj.rss ? jsonObj.rss.channel : jsonObj.feed;
-        let items = feed.item || feed.entry;
-
         if (!items || items.length === 0) {
+            console.log('No items found in feed', items);
             return results;
         }
 
@@ -1112,47 +1206,32 @@ async function scrapeRSSFeed(feedUrl, workerAddedLinks) {
 
                 link = normalizeUrl(link);
 
-                if (!addLinkGlobally(link)) {
+                if (!workerAddedLinks.has(link)) {
                     const title = cleanText(item.title);
-                    let fullText = extractFullText(item);
+                    const fullText = await extractFullText(item, link);
                     const date = item.pubDate || item.updated;
 
                     if (!isRecent(date)) continue;
-                    if (isOpinionArticle(item)) continue;
-                    if (!workerAddedLinks.has(link)) continue;
+                    if (isOpinionArticle(item, link)) continue;
+                    if (!addLinkGlobally(link)) continue;
 
-                    const { score, mostCommonTerm, termCount } = relevanceScoreAndMaxCommonFoundTerm(title, fullText);
-
-                    let combinedText = `${title} ${fullText}`;
-
-                    let numOfWords = countTokens(combinedText);
-
-                    let mainTopics = getMainTopics(combinedText, LANGUAGE, SENSITIVITY);
-
-                    combinedText = null;
-                    fullText = null;
-
-                    if (!mainTopics.some(topic => terms.includes(topic.toLowerCase())) 
-                        && score === 1
-                        && termCount < Math.floor(Math.log(numOfWords))) 
-                    {
-                        console.log(`Irrelevant article discarded: ${link}`);
-                        continue;
-                    }
-
-                    mainTopics = null
+                    const { score, mostCommonTerm } = relevanceScoreAndMaxCommonFoundTerm(title, fullText);
 
                     if (score > 0) {
                         workerAddedLinks.add(link);
                         console.log(`RSS-feed Added article! - ${link}`);
 
-                        results[mostCommonTerm].push({
+                        if (!results[mostCommonTerm.toLowerCase()]) {
+                            results[mostCommonTerm.toLowerCase()] = [];
+                        }
+
+                        results[mostCommonTerm.toLowerCase()].push({
                             title,
                             link,
                             summary: STRING_PLACEHOLDER,
                             score,
                             term: mostCommonTerm,
-                            termCount,
+                            fullText,
                             date
                         });
                     }
@@ -1165,9 +1244,76 @@ async function scrapeRSSFeed(feedUrl, workerAddedLinks) {
 
         return results;
     } catch (error) {
-        console.error('Error parsing RSS feed:', error);
+        console.error('Error parsing feed:', error);
         return results;
     }
+}
+
+/** Extracts articles from an HTML-like structure.
+ * @param {Object} obj - The parsed HTML object.
+ * @return {Array} An array of extracted articles. */
+function extractArticlesFromHTML(obj) {
+    const articles = [];
+
+    function traverse(node) {
+        if (typeof node !== 'object' || node === null) {
+            return;
+        }
+
+        if (node.article) {
+            const article = extractArticleInfo(node.article);
+            if (article) {
+                articles.push(article);
+            }
+        }
+
+        for (const key in node) {
+            traverse(node[key]);
+        }
+    }
+
+    traverse(obj);
+    return articles;
+}
+
+/** Extracts information from an article node.
+ * @param {Object} articleNode - The article node to extract information from.
+ * @return {Object|null} An object with article information, or null if required fields are missing. */
+function extractArticleInfo(articleNode) {
+    let title, link, pubDate, description;
+
+    function traverse(node) {
+        if (typeof node !== 'object' || node === null) {
+            return;
+        }
+
+        if (node.h2 && node.h2.a) {
+            title = node.h2.a['#text'];
+            link = node.h2.a['@_href'];
+        }
+
+        if (node.div && Array.isArray(node.div)) {
+            node.div.forEach(div => {
+                if (div.span && typeof div.span === 'string') {
+                    pubDate = div.span;
+                }
+            });
+        }
+
+        // Add more conditions here to extract description or other fields
+
+        for (const key in node) {
+            traverse(node[key]);
+        }
+    }
+
+    traverse(articleNode);
+
+    if (title && link) {
+        return { title, link, pubDate, description: '' };
+    }
+
+    return null;
 }
 
 async function crawlWebsite(url, terms, workerAddedLinks) {
@@ -1204,35 +1350,17 @@ async function crawlWebsite(url, terms, workerAddedLinks) {
                         const link = normalizeUrl(linkElement.attr("href"));
                         const dateText = dateElement.text().trim();
 
-                        if (!addLinkGlobally(link)) {
+                        if (!workerAddedLinks.has(link)) {
                             if (!isWebsiteValid(url, link) || !isRecent(dateText)) continue;
 
-                            if (!workerAddedLinks.has(link)) {
+                            if (!addLinkGlobally(link)) {
                                 continue;
                             }
 
                             try {
-                                let fullText = await extractArticleText(link);
+                                let articleContent = await extractArticleText(link);
+                                const { score, mostCommonTerm } = relevanceScoreAndMaxCommonFoundTerm(title, articleContent);
 
-                                const { score, mostCommonTerm, termCount } = relevanceScoreAndMaxCommonFoundTerm(title, fullText);
-
-                                let combinedText = `${title} ${fullText}`;
-
-                                let numOfWords = countTokens(combinedText);
-            
-                                let mainTopics = getMainTopics(combinedText, LANGUAGE, SENSITIVITY);
-            
-                                combinedText = null;
-                                fullText = null;
-            
-                                if (!mainTopics.some(topic => terms.includes(topic.toLowerCase())) 
-                                    && score === 1
-                                    && termCount < Math.floor(Math.log(numOfWords))) 
-                                {
-                                    console.log(`Irrelevant article discarded: ${link}`);
-                                    continue;
-                                }
-            
                                 if (score > 0) {
                                     workerAddedLinks.add(link);
                                     console.log(`Added article! - ${link}`);
@@ -1246,7 +1374,7 @@ async function crawlWebsite(url, terms, workerAddedLinks) {
                                         summary: STRING_PLACEHOLDER,
                                         score,
                                         term: mostCommonTerm,
-                                        termCount,
+                                        fullText: articleContent,
                                         date: dateText
                                     });
                                 }
@@ -1369,31 +1497,16 @@ const removeRedundantArticles = async (results) => {
             let unique = true;
             for (let j = 0; j < articles.length; j++) {
                 if (i !== j && !toRemove.has(j)) {
-                    if (articles[i].link == articles[j].link) {
+                    if (articles[i].link == articles[j].link ||
+                        articles[i].title == articles[j].title) 
+                    {
                         unique = false;
                         if (articles[i].score < articles[j].score) {
                             toRemove.add(i);
-                        } else if (articles[i].score > articles[j].score) {
-                            toRemove.add(j);
-                        } else if (articles[i].termCount > articles[j].termCount) {
-                            toRemove.add(j);
                         } else {
-                            toRemove.add(i);
-                        }
-                        break;
-                    }
-                    if (articles[i].title == articles[j].title) {
-                        unique = false;
-                        if (articles[i].score < articles[j].score) {
-                            toRemove.add(i);
-                        } else if (articles[i].score > articles[j].score) {
                             toRemove.add(j);
-                        } else if (articles[i].termCount > articles[j].termCount) {
-                            toRemove.add(j);
-                        } else {
-                            toRemove.add(i);
                         }
-                        break;
+                        break; // Stop inner loop as we found a duplicate
                     }
                 }
             }
@@ -1404,6 +1517,62 @@ const removeRedundantArticles = async (results) => {
     }
 
     return results;
+}
+
+/** Calculates the percentile value in an array of values.
+ * @param {Array<number>} values - The array of values to calculate the percentile from.
+ * @param {number} percentile - The percentile value to calculate.
+ * @return {number} The calculated percentile value.        */
+function calculatePercentile(values, percentile) {
+    if (values.length === 0) return 0;
+    values.sort((a, b) => a - b);
+    const index = Math.floor(percentile * values.length);
+    return values[index];
+}
+
+/** Arranges the articles from the given results object based on their terms.
+ * @param {Object} results - An object containing articles grouped by terms.
+ * @return {Promise<Object>} - A promise that resolves to an object with articles reorganized by term */
+async function removeIrrelevantArticles(results) {
+    let reorganizedResults = {};
+
+    let allScores = [];
+    for (const articles of Object.values(results)) {
+        for (let article of articles) {
+            allScores.push(article.score);
+        }
+    }
+
+    let twentyPercentile = calculatePercentile(allScores, 0.2);
+
+    for (const term of Object.keys(results)) {
+        reorganizedResults[term] = [];
+    }
+
+    for (const [term, articles] of Object.entries(results)) {
+        for (let article of articles) {
+            if (article.fullText === '') {
+                try {
+                    article.fullText = await extractArticleText(article.link);
+                } catch (error) {
+                    console.error(`Error extracting text from ${article.link}: ${error.message}`);
+                    continue;
+                }
+            }
+
+            let textToAnalyze = article.title + ' ' + article.fullText;
+
+            let mainTopics = getMainTopics(textToAnalyze, LANGUAGE, SENSITIVITY);
+            if (!mainTopics.some(topic => terms.includes(topic.toLowerCase())) && article.score <= twentyPercentile) {
+                console.log(`Irrelevant article discarded: ${article.link}`);
+                continue;
+            }
+
+            reorganizedResults[term].push(article);
+        }
+    }
+
+    return reorganizedResults;
 }
 
 /** Loads the previous results from the `crawled_results.json` file.
@@ -1481,7 +1650,7 @@ const extractTopArticles = (results) => {
     return potentialReturn.length < topArticles.length ? potentialReturn : topArticles;
 };
 
-/** Returns a string of the most common terms in the given object of articles, sorted by frequency and score.
+/**Returns a string of the most common terms in the given object of articles, sorted by frequency and score.
  * @param {Object} allResults - An object containing arrays of articles for each term.
  * @return {string} A string of the most common terms, separated by '/' - DISCLAIMER: NORMALLY IT'S A SINGLE TERM        */
 function mostCommonTerms(allResults) {
@@ -1508,6 +1677,8 @@ function mostCommonTerms(allResults) {
         const bMaxScore = Math.max(...allResults[b[0]].map(article => article.score));
         return bMaxScore - aMaxScore;
     }).slice(0, numOfTopics).map(term => term[0]);
+
+    topTerms = topTerms.map(term => term.split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' '));
 
     return topTerms.join('/');
 }
@@ -1552,10 +1723,9 @@ const sendEmail = async (emailTime) => {
         let link = EMPTY_STRING, summary = EMPTY_STRING;
         if (topArticles[i].summary === STRING_PLACEHOLDER ||
             topArticles[i].summary.includes(FAILED_SUMMARY_MSSG)) {
-            let fullText = await extractArticleText(topArticles[i].link)
             ({ url: link, response: summary } = await summarizeText(
                 topArticles[i].link,
-                fullText,
+                topArticles[i].fullText,
                 topArticles.length,
                 topArticles[i].title
             ));
@@ -1652,7 +1822,7 @@ const crawlWebsites = async (cycleEndTime) => {
     for (const term of terms) allResults[term] = [];
 
     const shuffledWebsites = shuffleArray([...websites]);
-    const maxConcurrentWorkers = os.cpus().length;
+    const maxConcurrentWorkers = 5 //os.cpus().length;
     let MINIMUM_AMOUNT_WORKERS = 1 + Math.floor(maxConcurrentWorkers * 0.2);
     const websiteChunks = chunkArray(shuffledWebsites, maxConcurrentWorkers);
 
@@ -1776,6 +1946,7 @@ const saveResults = async (results, emailTime) => {
 
     const thisIsTheTime = closeToEmailingTime(emailTime);
     if (thisIsTheTime) {
+        results = await removeIrrelevantArticles(results);
         if (!IGNORE_REDUNDANCY) {
             results = await removeRedundantArticles(results);
         }
@@ -1784,13 +1955,11 @@ const saveResults = async (results, emailTime) => {
         for (let i = 0; i < numTopArticles; i++) {
             if (topArticles[i].summary === STRING_PLACEHOLDER ||
                 topArticles[i].summary.includes(FAILED_SUMMARY_MSSG)) {
-                let fullText = await extractArticleText(topArticles[i].link)
                 ({ url: link, response: summary } = await summarizeText(
                     topArticles[i].link,
-                    fullText,
+                    topArticles[i].fullText,
                     numTopArticles,
-                    topArticles[i].title
-                ));
+                    topArticles[i].title));
                 topArticles[i].summary = summary;
                 topArticles[i].link = link !== EMPTY_STRING ? link : topArticles[i].link;
             }
@@ -1870,7 +2039,6 @@ const main = async () => {
     await sendEmail(emailTime);
     console.log("Email sent. Main process completed.");
 };
-
 
 if (isMainThread) {
     // Main thread code
