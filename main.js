@@ -1822,7 +1822,7 @@ const crawlWebsites = async (cycleEndTime) => {
     for (const term of terms) allResults[term] = [];
 
     const shuffledWebsites = shuffleArray([...websites]);
-    const maxConcurrentWorkers = 5 //os.cpus().length;
+    const maxConcurrentWorkers = os.cpus().length;
     let MINIMUM_AMOUNT_WORKERS = 1 + Math.floor(maxConcurrentWorkers * 0.2);
     const websiteChunks = chunkArray(shuffledWebsites, maxConcurrentWorkers);
 
