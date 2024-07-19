@@ -808,7 +808,7 @@ const relevanceScoreAndMaxCommonFoundTerm = (title, articleContent) => {
 
     // Calculate global relevance score
     let termFrequencySum = Object.values(termFrequencies).reduce((a, b) => a + b, 0);
-    let termPresenceSum = Math.exp(presenceCount)/2;  // Exponential progression
+    let termPresenceSum = presenceCount;
     let coOccurrenceSum = coOccurrenceCount;
 
     let weights = {
