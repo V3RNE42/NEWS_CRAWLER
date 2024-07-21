@@ -35,7 +35,10 @@ const FAILED_SUMMARY_MSSG = "No se pudo generar un resumen";
 const EMPTY_STRING = "";
 const CRAWLED_RESULTS_JSON = "crawled_results.json";
 const CRAWL_COMPLETE_FLAG = "crawl_complete.flag";
+const SAFE_TO_REBOOT_FLAG = "safe_to_reboot.flag";
+const safePath = path.join(__dirname, SAFE_TO_REBOOT_FLAG);
 const CRAWL_COMPLETE_TEXT = "Crawling completed!";
+const SAFE_REBOOT_MESSAGE = "Safe to reboot";
 const MOST_COMMON_TERM = "Most_Common_Term";
 
 let addedLinks = new Set();
@@ -1694,8 +1697,46 @@ const loadResults = () => {
     return null;
 };
 
+/** Clears the console by writing escape sequences to clear the screen, moving the cursor to the top left corner, and writing a blank line.
+ * If the console.clear method is available, it is used to clear the console.
+ * If the process is running on a Windows platform, the 'cls' command is executed using child_process.execSync to clear the console.
+ * If the process is running on a non-Windows platform, the 'clear' command is executed using child_process.execSync to clear the console.
+ * If any errors occur during the process, a blank line is printed to the console to clear it.      */
+function clearConsole() {
+    process.stdout.write('\u001b[3J');
+    process.stdout.write('\u001b[H');
+    process.stdout.write('\u001b[2J');
+
+    if (console.clear) {
+        console.clear();
+    }
+
+    if (process.platform === 'win32') {
+        try {
+            const { execSync } = require('child_process');
+            execSync('cls', {stdio: 'inherit'});
+        } catch (e) {
+            console.log('\n'.repeat(process.stdout.rows));
+        }
+    } else {
+        try {
+            const { execSync } = require('child_process');
+            execSync('clear', {stdio: 'inherit'});
+        } catch (e) {
+            console.log('\n'.repeat(process.stdout.rows));
+        }
+    }
+}
+
 const sendEmail = async (emailTime) => {
     console.log("Sending emails...");
+
+    try {
+        await fs.unlinkSync(safePath);
+        console.log("Removed 'safe to reboot' flag");
+    } catch (error) {
+        if (error.code !== 'ENOENT') console.error("Error removing safe to reboot flag:", error);
+    }
 
     const now = new Date();
     const results = loadResults();
@@ -1727,8 +1768,7 @@ const sendEmail = async (emailTime) => {
                 topArticles[i].link,
                 topArticles[i].fullText,
                 topArticles.length,
-                topArticles[i].title
-            ));
+                topArticles[i].title));
             topArticles[i].summary = summary;
             topArticles[i].link = link !== EMPTY_STRING ? link : topArticles[i].link;
         }
@@ -1801,6 +1841,9 @@ const sendEmail = async (emailTime) => {
         console.log("Cleanup complete: Deleted flag and results files.");
     } catch (error) {
         console.error(`Error sending emails: ${error}`);
+    } finally {
+        fs.writeFileSync(safePath, SAFE_REBOOT_MESSAGE);
+        clearConsole();
     }
 };
 
@@ -1944,6 +1987,13 @@ const saveResults = async (results, emailTime) => {
     let mostCommonTerm = MOST_COMMON_TERM;
     let link = EMPTY_STRING, summary = EMPTY_STRING;
 
+    try {
+        await fs.unlinkSync(safePath);
+        console.log("Removed 'safe to reboot' flag");
+    } catch (error) {
+        if (error.code !== 'ENOENT') console.error("Error removing safe to reboot flag:", error);
+    }
+
     const thisIsTheTime = closeToEmailingTime(emailTime);
     if (thisIsTheTime) {
         results = await removeIrrelevantArticles(results);
@@ -1974,6 +2024,9 @@ const saveResults = async (results, emailTime) => {
         fs.writeFileSync(flagPath, CRAWL_COMPLETE_TEXT);
         console.log(CRAWL_COMPLETE_TEXT)
     }
+
+    await fs.writeFileSync(safePath, SAFE_REBOOT_MESSAGE);
+    console.log("Safe to reboot flag set");
 
     return thisIsTheTime;
 };
