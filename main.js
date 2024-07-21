@@ -1114,12 +1114,12 @@ async function detectRSS(url, baseUrl, rssFeeds = new Set(), depth = 0) {
             }
         }
 
+        $ = null; // Clear the cheerio object to free memory
         return Array.from(rssFeeds);
     } catch (error) {
         console.error('Error fetching the URL:', error.message);
+        $ = null;
         return Array.from(rssFeeds);
-    } finally {
-        $ = null; // Clear the cheerio object to free memory
     }
 }
 
