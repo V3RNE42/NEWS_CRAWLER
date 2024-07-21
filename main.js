@@ -2,6 +2,7 @@
 const nodemailer = require("nodemailer");
 const fs = require("fs");
 const path = require("path");
+const util = require('util');
 const cheerio = require('cheerio');
 const { decode } = require('html-entities');
 const { XMLParser } = require('fast-xml-parser');
@@ -43,7 +44,29 @@ const MOST_COMMON_TERM = "Most_Common_Term";
 
 let addedLinks = new Set();
 let workers = [];
+let consoleLog = ''
 terms = terms.map((term) => term.toLowerCase());
+
+function getTimestamp() {
+    return new Date().toISOString();
+}
+
+function saveLog(reason = 'unknown') {
+    const logFileName = `log_${getTimestamp().replace(/[:.]/g, '-')}_${reason}.txt`;
+    const logFilePath = path.join(__dirname, logFileName);
+    fs.writeFileSync(logFilePath, consoleLog);
+    console.log(`Log saved to: ${logFilePath}`);
+}
+
+const originalConsole = {
+    log: console.log,
+    error: console.error,
+    warn: console.warn
+};
+
+console.log = function() { logToConsoleAndMemory('log', arguments); };
+console.error = function() { logToConsoleAndMemory('error', arguments); };
+console.warn = function() { logToConsoleAndMemory('warn', arguments); };
 
 /** Avoids capturing stack trace to save memory    */
 class LightweightError extends Error {
@@ -94,6 +117,13 @@ function addLinkGlobally(link) {
         return true;
     }
     return false;
+}
+
+function logToConsoleAndMemory(type, args) {
+    const timestamp = getTimestamp();
+    const msg = util.format.apply(null, args);
+    consoleLog += `[${timestamp}] [${type.toUpperCase()}] ${msg}\n`;
+    originalConsole[type].apply(console, args);
 }
 
 /** Removes patterns from the content recursively.
@@ -149,6 +179,31 @@ const parseTime = (timeStr) => {
 };
 
 let globalStopFlag = false;
+
+//GLOBAL ERROR HANDLERS
+process.on('uncaughtException', (error) => {
+    console.error('Uncaught Exception:', error);
+    saveLog('uncaught_exception');
+    process.exit(1);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+    saveLog('unhandled_rejection');
+    process.exit(1);
+});
+
+process.on('SIGINT', () => {
+    console.log('Received SIGINT. Saving log before exit.');
+    saveLog('sigint');
+    process.exit(0);
+});
+
+process.on('SIGTERM', () => {
+    console.log('Received SIGTERM. Saving log before exit.');
+    saveLog('sigterm');
+    process.exit(0);
+});
 
 //FUNCTIONS
 /** Assigns a valid browser path to the BROWSER_PATH variable based on the configuration
@@ -1841,6 +1896,7 @@ const sendEmail = async (emailTime) => {
         console.log("Cleanup complete: Deleted flag and results files.");
     } catch (error) {
         console.error(`Error sending emails: ${error}`);
+        saveLog('email_error');
     } finally {
         fs.writeFileSync(safePath, SAFE_REBOOT_MESSAGE);
         clearConsole();
@@ -2157,3 +2213,9 @@ if (isMainThread) {
         });
     })();
 }
+
+//LAST ERROR HANDLER
+process.on('exit', (code) => {
+    console.log(`About to exit with code: ${code}`);
+    saveLog('process_exit');
+});

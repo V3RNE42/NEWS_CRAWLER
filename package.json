@@ -31,6 +31,7 @@
     "openai": "^4.0.0",
     "path": "^0.12.7",
     "puppeteer": "^22.11.2",
-    "sanitize-html": "^2.13.0"
+    "sanitize-html": "^2.13.0",
+    "util": "^0.12.5"
   }
 }
