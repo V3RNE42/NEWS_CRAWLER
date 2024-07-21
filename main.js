@@ -29,7 +29,6 @@ const IGNORE_REDUNDANCY = config.text_analysis.ignore_redundancy;
 const MAX_RETRIES_PER_FETCH = 3; //to be managed by user configuration
 const INITIAL_DEALY = 500; //to be managed by user configuration
 const MINUTES_TO_CLOSE = 10 * 60000;
-let FALSE_ALARM = false;
 let BROWSER_PATH;
 
 const STRING_PLACEHOLDER = "placeholder";
@@ -2136,7 +2135,7 @@ const saveResults = async (results, emailTime) => {
     const resultsWithTop = { results, topArticles, mostCommonTerm };
 
     fs.writeFileSync(resultsPath, JSON.stringify(resultsWithTop, null, 2));
-    if (thisIsTheTime && !(FALSE_ALARM)) {
+    if (thisIsTheTime) {
         fs.writeFileSync(flagPath, CRAWL_COMPLETE_TEXT);
         console.log(CRAWL_COMPLETE_TEXT)
     }
@@ -2199,7 +2198,7 @@ const main = async () => {
         await new Promise(resolve => setTimeout(resolve, 60000)); // 1 minute delay
     }
 
-    if (!fs.existsSync(path.join(__dirname, CRAWL_COMPLETE_FLAG)) && !(FALSE_ALARM)) {
+    if (!fs.existsSync(path.join(__dirname, CRAWL_COMPLETE_FLAG))) {
         fs.writeFileSync(path.join(__dirname, CRAWL_COMPLETE_FLAG), CRAWL_COMPLETE_TEXT);
         console.log("Crawl complete flag created.");
     }
