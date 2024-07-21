@@ -3,6 +3,7 @@ const nodemailer = require("nodemailer");
 const fs = require("fs");
 const path = require("path");
 const util = require('util');
+const { exec } = require('child_process');
 const cheerio = require('cheerio');
 const { decode } = require('html-entities');
 const { XMLParser } = require('fast-xml-parser');
@@ -184,26 +185,67 @@ let globalStopFlag = false;
 process.on('uncaughtException', (error) => {
     console.error('Uncaught Exception:', error);
     saveLog('uncaught_exception');
-    process.exit(1);
+    checkSafeAndReboot('Uncaught Exception');
 });
 
 process.on('unhandledRejection', (reason, promise) => {
     console.error('Unhandled Rejection at:', promise, 'reason:', reason);
     saveLog('unhandled_rejection');
-    process.exit(1);
+    checkSafeAndReboot('Unhandled Rejection');
 });
 
 process.on('SIGINT', () => {
     console.log('Received SIGINT. Saving log before exit.');
     saveLog('sigint');
-    process.exit(0);
+    checkSafeAndReboot('SIGINT');
 });
 
 process.on('SIGTERM', () => {
     console.log('Received SIGTERM. Saving log before exit.');
     saveLog('sigterm');
-    process.exit(0);
+    checkSafeAndReboot('SIGTERM');
 });
+
+function checkSafeAndReboot(reason) {
+    console.log(`Checking if it's safe to reboot due to: ${reason}`);
+    fs.readFile(safePath, 'utf8', (err, data) => {
+        if (err) {
+            console.error(`Error reading safe-to-reboot flag: ${err}`);
+            console.log('Skipping reboot due to error reading flag.');
+            process.exit(1);
+        } else if (data.trim() === SAFE_REBOOT_MESSAGE) {
+            console.log('Safe to reboot flag is set. Initiating reboot...');
+            initiateReboot(reason);
+        } else {
+            console.log('Not safe to reboot. Exiting without reboot.');
+            process.exit(1);
+        }
+    });
+}
+
+function initiateReboot(reason) {
+    console.log(`Initiating system reboot due to: ${reason}`);
+    if (process.platform === "win32") {
+        exec('shutdown /r /t 10', (error, stdout, stderr) => {
+            if (error) {
+                console.error(`Reboot failed: ${error}`);
+                return;
+            }
+            console.log('System will reboot in 10 seconds.');
+        });
+    } else {
+        // For Unix-like systems
+        exec('sudo /sbin/shutdown -r now', (error, stdout, stderr) => {
+            if (error) {
+                console.error(`Reboot failed: ${error}`);
+                return;
+            }
+            console.log('System is rebooting now.');
+        });
+    }
+    // Give some time for the reboot command to be processed
+    setTimeout(() => process.exit(1), 5000);
+}
 
 //FUNCTIONS
 /** Assigns a valid browser path to the BROWSER_PATH variable based on the configuration
@@ -224,9 +266,24 @@ const todayDate = () => {
 
 const sleep = async (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-/**
- * Extracts the text content of an article from a given URL.
- *
+
+/** Asynchronously extracts article text with retry logic.
+ * @param {string} url - The URL of the article to extract text from.
+ * @param {number} [maxRetries=3] - The maximum number of retry attempts.
+ * @return {Promise<string>} The extracted article text.    */
+async function extractArticleTextWithRetry(url, maxRetries = 3) {
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+            return await extractArticleText(url);
+        } catch (error) {
+            if (attempt === maxRetries) throw error;
+            console.log(`Attempt ${attempt} failed for ${url}. Retrying...`);
+            await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+        }
+    }
+}
+
+/** Extracts the text content of an article from a given URL.
  * @param {string} url - The URL of the article.
  * @return {Promise<string>} A Promise that resolves to the extracted text content. */
 async function extractArticleText(url) {
@@ -237,7 +294,8 @@ async function extractArticleText(url) {
             executablePath: BROWSER_PATH
         });
         const page = await browser.newPage();
-        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+        await page.setDefaultNavigationTimeout(60000);
+        await page.goto(url, { waitUntil: 'domcontentloaded' });
 
         let articleHtml = await page.evaluate(() => {
             const mainSelectors = [
@@ -430,6 +488,7 @@ async function getProxiedContent(link) {
             executablePath: BROWSER_PATH
         });
         const page = await browser.newPage();
+        await page.setDefaultNavigationTimeout(60000);
         await page.goto('https://www.removepaywall.com/', { waitUntil: 'domcontentloaded' });
         await page.type('input#simple-search', link);
         await page.click('#__next > div > section > div > header > div > div:nth-child(4) > form > button');
@@ -1110,7 +1169,7 @@ const extractFullText = async (item, link = null) => {
 
     //If fullText is less than 100 words, try a different approach
     if (countTokens(fullText) < 100) {
-        let potentialFullText = await extractArticleText(link);
+        let potentialFullText = await extractArticleTextWithRetry(link);
         fullText = countTokens(potentialFullText) > countTokens(fullText) ? potentialFullText : fullText;
     }
 
@@ -1417,7 +1476,7 @@ async function crawlWebsite(url, terms, workerAddedLinks) {
                             }
 
                             try {
-                                let articleContent = await extractArticleText(link);
+                                let articleContent = await extractArticleTextWithRetry(link);
                                 const { score, mostCommonTerm } = relevanceScoreAndMaxCommonFoundTerm(title, articleContent);
 
                                 if (score > 0) {
@@ -1612,7 +1671,7 @@ async function removeIrrelevantArticles(results) {
         for (let article of articles) {
             if (article.fullText === '') {
                 try {
-                    article.fullText = await extractArticleText(article.link);
+                    article.fullText = await extractArticleTextWithRetry(article.link);
                 } catch (error) {
                     console.error(`Error extracting text from ${article.link}: ${error.message}`);
                     continue;
