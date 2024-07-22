@@ -1093,8 +1093,6 @@ async function detectRSS(url, baseUrl, rssFeeds = new Set(), depth = 0) {
 
         // Buscar enlaces en la página que contengan "/rss/"
         let subRSSLinks = $('a[href*="/rss/"]').map((i, elem) => $(elem).attr('href')).get();
-        let extra = [`${baseUrl}/rss/`, `${baseUrl}/feed/`];
-        subRSSLinks.push(...extra);
 
         for (const link of subRSSLinks) {
             try {
