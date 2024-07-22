@@ -51,6 +51,11 @@ function getTimestamp() {
     return new Date().toISOString();
 }
 
+/** Reset the console log by clearing the content. */
+function resetLog() {
+    consoleLog = '';
+}
+
 function saveLog(reason = 'unknown') {
     const logFileName = `log_${getTimestamp().replace(/[:.]/g, '-')}_${reason}.txt`;
     const logFilePath = path.join(__dirname, logFileName);
@@ -60,13 +65,11 @@ function saveLog(reason = 'unknown') {
 
 const originalConsole = {
     log: console.log,
-    error: console.error,
-    warn: console.warn
+    error: console.error
 };
 
 console.log = function() { logToConsoleAndMemory('log', arguments); };
 console.error = function() { logToConsoleAndMemory('error', arguments); };
-console.warn = function() { logToConsoleAndMemory('warn', arguments); };
 
 /** Avoids capturing stack trace to save memory    */
 class LightweightError extends Error {
@@ -191,18 +194,6 @@ process.on('unhandledRejection', (reason, promise) => {
     console.error('Unhandled Rejection at:', promise, 'reason:', reason);
     saveLog('unhandled_rejection');
     checkSafeAndReboot('Unhandled Rejection');
-});
-
-process.on('SIGINT', () => {
-    console.log('Received SIGINT. Saving log before exit.');
-    saveLog('sigint');
-    checkSafeAndReboot('SIGINT');
-});
-
-process.on('SIGTERM', () => {
-    console.log('Received SIGTERM. Saving log before exit.');
-    saveLog('sigterm');
-    checkSafeAndReboot('SIGTERM');
 });
 
 function checkSafeAndReboot(reason) {
@@ -1102,6 +1093,8 @@ async function detectRSS(url, baseUrl, rssFeeds = new Set(), depth = 0) {
 
         // Buscar enlaces en la página que contengan "/rss/"
         let subRSSLinks = $('a[href*="/rss/"]').map((i, elem) => $(elem).attr('href')).get();
+        let extra = [`${baseUrl}/rss/`, `${baseUrl}/feed/`];
+        subRSSLinks.push(...extra);
 
         for (const link of subRSSLinks) {
             try {
@@ -2193,6 +2186,8 @@ const main = async () => {
             console.log("It's time to send email. Breaking the loop.");
             break;
         }
+
+        resetLog();
 
         console.log("Waiting before starting next cycle...");
         await new Promise(resolve => setTimeout(resolve, 60000)); // 1 minute delay
