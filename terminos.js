@@ -499,6 +499,7 @@ module.exports = {
         "https://eluniversal.com.mx",
         "https://emol.com",
         "https://europapress.es",
+        "https://epe.es/es/",
         "https://excelsior.com.mx",
         "https://expansion.com",
         "https://fundacionfaes.org",
