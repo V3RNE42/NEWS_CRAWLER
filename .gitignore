@@ -7,3 +7,7 @@ crawled_results.json
 crawl_complete.flag
 test.js
 .vscode
+*.txt
+*.flag
+script.js
+statistics_output.json

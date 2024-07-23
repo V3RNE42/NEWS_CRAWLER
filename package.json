@@ -4,7 +4,7 @@
   "description": "Welcome to the NodeJS Webcrawler Newsletter! This newsletter aims to provide you with the latest updates, tips, and resources related to whatever you want! It's defaulted to Spanish newspapers and international security issues, but you can adapt it to your own needs! :^)",
   "main": "main.js",
   "scripts": {
-    "start": "node main.js"
+    "start": "node --expose-gc main.js"
   },
   "repository": {
     "type": "git",

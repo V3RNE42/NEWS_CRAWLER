@@ -3,6 +3,7 @@ const nodemailer = require("nodemailer");
 const fs = require("fs");
 const path = require("path");
 const util = require('util');
+const { parse: parseUrl, format } = require('url');
 const { exec } = require('child_process');
 const cheerio = require('cheerio');
 const { decode } = require('html-entities');
@@ -27,7 +28,7 @@ const SENSITIVITY = config.text_analysis.topic_sensitivity;
 const MAX_TOKENS_PER_CALL = config.openai.max_tokens_per_call;
 const IGNORE_REDUNDANCY = config.text_analysis.ignore_redundancy;
 const MAX_RETRIES_PER_FETCH = 3; //to be managed by user configuration
-const INITIAL_DEALY = 500; //to be managed by user configuration
+const INITIAL_DELAY = 500; //to be managed by user configuration
 const MINUTES_TO_CLOSE = 10 * 60000;
 let BROWSER_PATH;
 
@@ -190,11 +191,6 @@ process.on('uncaughtException', (error) => {
     checkSafeAndReboot('Uncaught Exception');
 });
 
-process.on('unhandledRejection', (reason, promise) => {
-    console.error('Unhandled Rejection at:', promise, 'reason:', reason);
-    saveLog('unhandled_rejection');
-    checkSafeAndReboot('Unhandled Rejection');
-});
 
 function checkSafeAndReboot(reason) {
     console.log(`Checking if it's safe to reboot due to: ${reason}`);
@@ -277,48 +273,24 @@ async function extractArticleTextWithRetry(url, maxRetries = 3) {
  * @param {string} url - The URL of the article.
  * @return {Promise<string>} A Promise that resolves to the extracted text content. */
 async function extractArticleText(url) {
+    let articleHtml;
     try {
-        const browser = await puppeteer.launch({
-            headless: true,
-            args: ['--no-sandbox', '--disable-setuid-sandbox'],
-            executablePath: BROWSER_PATH,
-            protocolTimeout: 120000
-        });
-        const page = await browser.newPage();
-        await page.setDefaultNavigationTimeout(120000);
-        await page.goto(url, { waitUntil: 'domcontentloaded' });
-
-        let articleHtml = await page.evaluate(() => {
-            const mainSelectors = [
-                'article', 'main', 'section', '.article-body',
-                '.content', '.main-content', '.entry-content',
-                '.post-content', '.story-body', '.news-article'
-            ];
-
-            let mainElement = null;
-            for (let selector of mainSelectors) {
-                mainElement = document.querySelector(selector);
-                if (mainElement) break;
-            }
-
-            return mainElement ? mainElement.innerHTML : '';
-        });
-
-        await browser.close();
-
-        if (articleHtml === EMPTY_STRING) {
-            articleHtml = await fetchTextWithRetry(url);
-        }
-
-        return cleanText(articleHtml);
-    } catch (error) {
+        articleHtml = await fetchTextWithRetry(url);
+        articleHtml = cleanText(articleHtml);
         try {
-            const html = await fetchTextWithRetry(url);
-            return cleanText(html);
-        } catch (fetchError) {
-            console.error(`Fetch error for ${url}: ${fetchError.message}`);
-            return EMPTY_STRING;
+            if (countTokens(articleHtml) < 100) {
+                const { url: proxiedUrl, content: text } = await getProxiedContent(url);
+                text = cleanText(text);
+                articleHtml = countTokens(articleHtml) < countTokens(text) ? text : articleHtml;
+            }
+        } catch (error) {
+            console.log(error.message);
+        } finally {
+            return articleHtml;
         }
+    } catch (error) {
+        console.error(`Fetch error for ${url}: ${error.message}`);
+        return EMPTY_STRING;
     }
 }
 
@@ -806,17 +778,24 @@ async function fetchTextWithRetry(url) {
     }
 }
 
+
 /** Fetches data from a given URL with retry logic.
  * @param {string} url - The URL to fetch data from.
  * @param {number} [retries=0] - The number of retries.
- * @param {number} [initialDelay=INITIAL_DEALY] - The initial delay in milliseconds.
+ * @param {number} [initialDelay=INITIAL_DELAY] - The initial delay in milliseconds.
+ * @param {boolean} [triedBoth=false] - Indicates if both variants of the URL have been tried.
  * @return {Promise<any>} A Promise that resolves to the fetched data.
- * @throws {Error} If the maximum number of retries is reached. */
-async function fetchWithRetry(url, retries = 0, initialDelay = INITIAL_DEALY) {
-    let urlToFetch = retries % 2 == 0 ? normalizeUrl(url) : denormalizeUrl(url);
+ * @throws {LightweightError} If the maximum number of retries is reached or if the crawl is stopped.   */
+async function fetchWithRetry(url, retries = 0, initialDelay = INITIAL_DELAY, triedBoth = false) {
     if (globalStopFlag) {
         throw new LightweightError('Crawl stopped');
     }
+
+    const urlWithoutSlash = normalizeUrl(url);
+    const urlWithSlash = denormalizeUrl(url);
+
+    let urlToFetch = triedBoth ? url : (retries % 2 === 0 ? urlWithoutSlash : urlWithSlash);
+
     try {
         const randomDelay = Math.floor(Math.random() * initialDelay);
         await sleep(randomDelay);
@@ -829,13 +808,20 @@ async function fetchWithRetry(url, retries = 0, initialDelay = INITIAL_DEALY) {
         });
         return response.data;
     } catch (error) {
-        if (retries >= MAX_RETRIES_PER_FETCH) {
-            throw new LightweightError(`Failed to fetch ${urlToFetch} after ${MAX_RETRIES_PER_FETCH} retries: ${error.message}`);
+        if (!triedBoth) {
+            // If we haven't tried both variants yet, try the other one immediately
+            console.log(`Attempt failed for ${urlToFetch}. Trying alternate URL...`);
+            return fetchWithRetry(urlToFetch === urlWithoutSlash ? urlWithSlash : urlWithoutSlash, retries, initialDelay, true);
         }
+
+        if (retries >= MAX_RETRIES_PER_FETCH - 1) {  // -1 because we're counting from 0
+            throw new LightweightError(`Failed to fetch ${url} after ${MAX_RETRIES_PER_FETCH} retries: ${error.message}`);
+        }
+
         const delay = initialDelay * Math.pow(3, retries);
-        console.log(`Attempt ${retries + 1} failed for ${urlToFetch}. Retrying in ${delay}ms...`);
+        console.log(`Attempt ${retries + 1} failed for ${url}. Retrying in ${delay}ms...`);
         await new Promise(resolve => setTimeout(resolve, delay));
-        return fetchWithRetry(urlToFetch, retries + 1, delay);
+        return fetchWithRetry(url, retries + 1, delay, false);
     }
 }
 
@@ -935,12 +921,11 @@ const relevanceScoreAndMaxCommonFoundTerm = (title, articleContent) => {
 /** Normalizes a URL by removing the trailing slash if it exists.
  * @param {string} url - The URL to be normalized.
  * @return {string} The normalized URL.          */
-const normalizeUrl = (url) => {
-    if (url[url.length - 1] === '/') {
-        url = url.slice(0, -1);
-    }
-    return url;
-};
+function normalizeUrl(url) {
+    const parsedUrl = parseUrl(url);
+    parsedUrl.pathname = parsedUrl.pathname.replace(/\/+$/, '');
+    return format(parsedUrl);
+}
 
 /**
  * Checks if the current time is close to the provided email end time.
@@ -1086,34 +1071,24 @@ function getDomain(url) {
 /** Fetches data from a given URL with retry logic.
  * @param {string} url - The URL to fetch data from. 
  * @param {number} [retries=0] - The number of retries.
- * @param {number} [initialDelay=INITIAL_DEALY] - The initial delay in milliseconds.
+ * @param {number} [initialDelay=INITIAL_DELAY] - The initial delay in milliseconds.
  * @return {Promise<Object>} A Promise that resolves to an object with data and headers.
  * @throws {Error} If an error occurs during the fetch. */
 async function fetchForRSS(url, retries = 0, initialDelay = 500) {
     const MAX_RETRIES = 5;
     const normalizedUrl = normalizeUrl(url);
-    const domain = getDomain(normalizedUrl);
 
-    // Respect domain-specific delays
-    if (domainDelays.has(domain)) {
-        const timeToWait = domainDelays.get(domain) - Date.now();
-        if (timeToWait > 0) {
-            await new Promise(resolve => setTimeout(resolve, timeToWait));
-        }
-    }
+    await sleep(Math.floor(initialDelay*Math.random()));
 
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
         try {
             const response = await axios.get(normalizedUrl, {
                 headers: {
-                    'User-Agent': userAgents[Math.floor(Math.random() * userAgents.length)]
+                    'User-Agent': 'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36 Edg/91.0.864.59'
                 },
                 timeout: 30000,
                 maxRedirects: 5
             });
-
-            // Set a delay for the next request to this domain
-            domainDelays.set(domain, Date.now() + 5000);  // 5 second delay
 
             return {
                 data: response.data,
@@ -1141,65 +1116,142 @@ async function fetchForRSS(url, retries = 0, initialDelay = 500) {
     }
 }
 
-/** Helper function to guess content type from the response data */
-// function guessContentType(data) {
-//     if (data.trim().startsWith('<?xml') || data.trim().startsWith('<rss')) {
-//         return 'application/rss+xml';
-//     } else if (data.trim().startsWith('{')) {
-//         return 'application/json';
-//     } else {
-//         return 'text/html';
-//     }
-// }
-
 /** Asynchronously detects and retrieves RSS feeds from the provided URL.
  * @param {string} url - The URL to fetch the RSS feed from.
- * @return {Array} An array of RSS feed URLs extracted from the provided URL.           */
-async function detectRSS(url, baseUrl, rssFeeds = new Set(), depth = 0) {
+ * @param {string} baseUrl - The base URL to resolve relative URLs.
+ * @param {Set} rssFeeds - The Set containing the discovered RSS feed URLs.
+ * @param {number} depth - The current depth of recursion in the search.
+ * @param {Set} visited - The Set of URLs already visited to avoid duplicates.
+ * @return {Array} An array of RSS feed URLs extracted from the provided URL.       */
+async function detectRSS(url, baseUrl, rssFeeds = new Set(), depth = 0, visited = new Set()) {
     if (globalStopFlag) {
         return Array.from(rssFeeds);
     }
 
     const MAX_DEPTH = 3;
+    const MAX_FEEDS = 10;
 
-    if (depth > MAX_DEPTH) {
+    if (depth > MAX_DEPTH || rssFeeds.size >= MAX_FEEDS || visited.has(url)) {
         return Array.from(rssFeeds);
     }
+
+    visited.add(url);
+
     try {
-        const data = await fetchWithRetry(url);
-        let $ = cheerio.load(data);
-
-        // Añadir los feeds RSS encontrados a la lista
-        $('link[type="application/rss+xml"], link[type="application/atom+xml"]').each((i, elem) => {
-            try {
-                const feedUrl = $(elem).attr('href');
-                const absoluteFeedUrl = new URL(feedUrl, baseUrl).href;
-                rssFeeds.add(absoluteFeedUrl);
-            } catch (err) {
-                let error = new LightweightError(err.message);
-                console.error('Invalid URL:', $(elem).attr('href'), error.message);
-                error = null;
+        // Check if the URL is valid and has an http or https protocol
+        let fullUrl;
+        try {
+            fullUrl = new URL(url, baseUrl);
+            if (!['http:', 'https:'].includes(fullUrl.protocol)) {
+                console.log(`Skipping non-http(s) URL: ${fullUrl.href}`);
+                return Array.from(rssFeeds);
             }
-        });
+            // Remove trailing slash
+            fullUrl = fullUrl.href.replace(/\/$/, '');
+        } catch (error) {
+            console.error(`Invalid URL: ${url}`, error.message);
+            return Array.from(rssFeeds);
+        }
 
-        // Buscar enlaces en la página que contengan "/rss/"
-        let subRSSLinks = $('a[href*="/rss/"]').map((i, elem) => $(elem).attr('href')).get();
+        // Skip known problematic URLs
+        if (!fullUrl.includes('http') ||
+            fullUrl.includes('cloudflare.com') || 
+            fullUrl.includes('whatsapp.com') || 
+            fullUrl.includes('youtube.com') || 
+            fullUrl.includes('twitter.com') ||
+            fullUrl.includes('facebook.com') ||
+            fullUrl.includes('/donate') ||
+            fullUrl.includes('linkedin.com/pub/dir')) {
+            return Array.from(rssFeeds);
+        }
 
-        for (const link of subRSSLinks) {
+        const response = await fetchForRSS(fullUrl);
+        if (!response) {
+            return Array.from(rssFeeds);
+        }
+
+        const { data, headers } = response;
+        const contentType = headers['content-type']?.toLowerCase() || '';
+
+        if (contentType.includes('application/rss+xml') || contentType.includes('application/atom+xml')) {
+            rssFeeds.add(fullUrl);
+            return Array.from(rssFeeds);
+        }
+
+        if (contentType.includes('application/json')) {
             try {
-                const fullLink = new URL(link, baseUrl).href;
-                await detectRSS(fullLink, baseUrl, rssFeeds, depth);
-            } catch (err) {
-                let error = new LightweightError(err.message);
-                console.error('Invalid URL:', link, error.message);
-                error = null;
+                const jsonData = JSON.parse(data);
+                if (jsonData.version && jsonData.version.startsWith('https://jsonfeed.org/version/')) {
+                    rssFeeds.add(fullUrl);
+                    return Array.from(rssFeeds);
+                }
+            } catch (e) {
+                console.error('Error parsing JSON:', e.message);
             }
         }
 
-        $ = null; // Clear the cheerio object to free memory
-        return Array.from(rssFeeds);
+        if (!contentType.includes('text/html')) {
+            return Array.from(rssFeeds);
+        }
+
+        let $ = cheerio.load(data);
+
+        // Check for feed links in <link> tags
+        const feedTypes = ['application/rss+xml', 'application/atom+xml', 'application/feed+json'];
+        $('link[rel="alternate"], link[type]').each((i, elem) => {
+            const type = $(elem).attr('type');
+            const href = $(elem).attr('href');
+            if ((feedTypes.includes(type) || href?.includes('/feed')) && href) {
+                try {
+                    const absoluteFeedUrl = new URL(href, fullUrl).href.replace(/\/$/, '');
+                    if (['http:', 'https:'].includes(new URL(absoluteFeedUrl).protocol)) {
+                        rssFeeds.add(absoluteFeedUrl);
+                    }
+                } catch (err) {
+                    console.error('Invalid feed URL:', href, err.message);
+                }
+            }
+        });
+
+        // Check for common RSS patterns in <a> tags
+        const rssPatterns = ['/rss', '/feed', '/atom', '/rss.xml', '/atom.xml', '/feed.xml', '.rss', '.xml'];
+        $('a[href]').each((i, elem) => {
+            const href = $(elem).attr('href');
+            if (href && rssPatterns.some(pattern => href.toLowerCase().includes(pattern))) {
+                try {
+                    const absoluteFeedUrl = new URL(href, fullUrl).href.replace(/\/$/, '');
+                    if (['http:', 'https:'].includes(new URL(absoluteFeedUrl).protocol)) {
+                        rssFeeds.add(absoluteFeedUrl);
+                    }
+                } catch (err) {
+                    console.error('Invalid feed URL:', href, err.message);
+                }
+            }
+        });
+
+        if (depth < MAX_DEPTH && rssFeeds.size < MAX_FEEDS) {
+            const subLinks = $('a[href]')
+                .map((i, elem) => $(elem).attr('href'))
+                .get()
+                .filter(link => {
+                    try {
+                        const url = new URL(link, fullUrl);
+                        return ['http:', 'https:'].includes(url.protocol);
+                    } catch {
+                        return false;
+                    }
+                })
+                .filter(link => !link.toLowerCase().includes('javascript:'))
+                .slice(0, 10);
+
+            for (const link of subLinks) {
+                if (rssFeeds.size >= MAX_FEEDS) break;
+                await detectRSS(link, fullUrl, rssFeeds, depth + 1, visited);
+            }
+        }
     } catch (error) {
-        console.error('Error fetching the URL:', error.message);
+        console.error('Error in detectRSS for URL:', url, error.message);
+    } finally {
         $ = null;
         return Array.from(rssFeeds);
     }
@@ -1210,8 +1262,7 @@ async function sanitizeXML(xml) {
     return sanitized;
 }
 
-/** Extracts the full text content from the given item object based on a priority list of content fields.
- *
+/** the full text content from the given item object based on a priority list of content fields.
  * @param {object} item - The item object containing various content fields.
  * @return {string} The extracted full text content.        */
 const extractFullText = async (item, link = null) => {
@@ -1742,7 +1793,7 @@ async function removeIrrelevantArticles(results) {
         }
     }
 
-    let twentyPercentile = calculatePercentile(allScores, 0.2);
+    let twentyPercentile = calculatePercentile(allScores, 0.45);
 
     for (const term of Object.keys(results)) {
         reorganizedResults[term] = [];
