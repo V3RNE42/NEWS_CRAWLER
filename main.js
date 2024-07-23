@@ -447,7 +447,7 @@ async function getProxiedContent(link) {
             executablePath: BROWSER_PATH,
             protocolTimeout: 120000
         });
-        const page = await browser.newPage();
+        let page = await browser.newPage();
         await page.setDefaultNavigationTimeout(120000);
         await page.goto('https://www.removepaywall.com/', { waitUntil: 'domcontentloaded' });
         await page.type('input#simple-search', link);
@@ -791,8 +791,8 @@ async function fetchWithRetry(url, retries = 0, initialDelay = INITIAL_DELAY, tr
         throw new LightweightError('Crawl stopped');
     }
 
-    const urlWithoutSlash = normalizeUrl(url);
-    const urlWithSlash = denormalizeUrl(url);
+    let urlWithoutSlash = normalizeUrl(url);
+    let urlWithSlash = denormalizeUrl(url);
 
     let urlToFetch = triedBoth ? url : (retries % 2 === 0 ? urlWithoutSlash : urlWithSlash);
 
@@ -1235,7 +1235,7 @@ async function detectRSS(url, baseUrl, rssFeeds = new Set(), depth = 0, visited 
                 .get()
                 .filter(link => {
                     try {
-                        const url = new URL(link, fullUrl);
+                        let url = new URL(link, fullUrl);
                         return ['http:', 'https:'].includes(url.protocol);
                     } catch {
                         return false;
@@ -1244,7 +1244,7 @@ async function detectRSS(url, baseUrl, rssFeeds = new Set(), depth = 0, visited 
                 .filter(link => !link.toLowerCase().includes('javascript:'))
                 .slice(0, 10);
 
-            for (const link of subLinks) {
+            for (let link of subLinks) {
                 if (rssFeeds.size >= MAX_FEEDS) break;
                 await detectRSS(link, fullUrl, rssFeeds, depth + 1, visited);
             }
@@ -1379,7 +1379,7 @@ function extractLink(item) {
     // If item is an array, recursively check each element
     if (Array.isArray(item)) {
         for (const subItem of item) {
-            const link = extractLink(subItem);
+            let link = extractLink(subItem);
             if (link) return link;
         }
     }
@@ -1597,7 +1597,7 @@ async function crawlWebsite(url, terms, workerAddedLinks) {
 
                     if (titleElement.length && linkElement.length && dateElement.length) {
                         const title = titleElement.text().trim();
-                        const link = normalizeUrl(linkElement.attr("href"));
+                        let link = normalizeUrl(linkElement.attr("href"));
                         const dateText = dateElement.text().trim();
 
                         if (!workerAddedLinks.has(link)) {
@@ -2367,7 +2367,7 @@ if (isMainThread) {
 
         parentPort.postMessage({ type: 'started' });
 
-        for (const url of urlsToCrawl) {
+        for (let url of urlsToCrawl) {
             if (Date.now() >= cycleEndTime.getTime() || globalStopFlag) {
                 break;
             }
