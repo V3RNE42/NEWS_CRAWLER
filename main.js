@@ -279,12 +279,12 @@ async function extractArticleText(url) {
         articleHtml = cleanText(articleHtml);
         try {
             if (countTokens(articleHtml) < 100) {
-                const { url: proxiedUrl, content: text } = await getProxiedContent(url);
+                let { url: proxiedUrl, content: text } = await getProxiedContent(url);
                 text = cleanText(text);
                 articleHtml = countTokens(articleHtml) < countTokens(text) ? text : articleHtml;
             }
         } catch (error) {
-            console.log(error.message);
+            console.log("There was an error extracting article text!", error.message);
         } finally {
             return articleHtml;
         }
