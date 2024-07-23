@@ -83,6 +83,8 @@ class LightweightError extends Error {
 
 /** Patterns that contain comment sections **/
 const patternsToRemove = [
+    /<!\[CDATA\[ /gi,
+    / ]]>/gi,
     /<div id="comments" class="comments-area"*>[\s\S]*?<\/div>/gi,
     /<div id="comments"[\s\S]*?<\/div>\s*<\/div>\s*<\/div>/gi,
     /<div[^>]*(?:id|class)=[^>]*comments?[^>]*>[\s\S]*?<\/div>/gi,
@@ -778,6 +780,20 @@ async function fetchTextWithRetry(url) {
     }
 }
 
+const weirdCharacters = ['?', '%', '#'];
+
+/** Removes any weird characters from the given URL.
+ * @param {string} url - The URL from which to remove the weird characters.
+ * @return {string} The modified URL with the weird characters removed. */
+function removeWeirdCharactersFromUrl(url) {
+    for (let char of weirdCharacters) {
+        if (url.includes(char)) {
+            const index = url.indexOf(char);
+            url = url.substring(0, index);
+        }
+    }
+    return url;
+}
 
 /** Fetches data from a given URL with retry logic.
  * @param {string} url - The URL to fetch data from.
@@ -1076,7 +1092,7 @@ function getDomain(url) {
  * @throws {Error} If an error occurs during the fetch. */
 async function fetchForRSS(url, retries = 0, initialDelay = 500) {
     const MAX_RETRIES = 5;
-    const normalizedUrl = normalizeUrl(url);
+    const normalizedUrl = normalizeUrl(removeWeirdCharactersFromUrl(url));
 
     await sleep(Math.floor(initialDelay*Math.random()));
 
@@ -1453,6 +1469,8 @@ async function scrapeRSSFeed(feedUrl, workerAddedLinks) {
 
             try {
                 let link = extractLink(item);
+                link = removePatterns(link);
+                link = removeWeirdCharactersFromUrl(link);
 
                 if (Array.isArray(link)) {
                     link = link[0];
