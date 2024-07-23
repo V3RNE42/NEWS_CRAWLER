@@ -281,10 +281,11 @@ async function extractArticleText(url) {
         const browser = await puppeteer.launch({
             headless: true,
             args: ['--no-sandbox', '--disable-setuid-sandbox'],
-            executablePath: BROWSER_PATH
+            executablePath: BROWSER_PATH,
+            protocolTimeout: 120000
         });
         const page = await browser.newPage();
-        await page.setDefaultNavigationTimeout(60000);
+        await page.setDefaultNavigationTimeout(120000);
         await page.goto(url, { waitUntil: 'domcontentloaded' });
 
         let articleHtml = await page.evaluate(() => {
@@ -443,9 +444,7 @@ async function getNonChunkedOpenAIResponse(text, topic, maxTokens) {
 }
 
 
-/**
- * Retrieves an OpenAI response for the given text and title.
- *
+/** Retrieves an OpenAI response for the given text and title.
  * @param {string} text - The text to be summarized.
  * @param {string} topic - The topic of the news article.
  * @param {number} maxTokens - The maximum number of tokens allowed in the response.
@@ -463,9 +462,7 @@ async function getOpenAIResponse(text, topic, maxTokens) {
     return getNonChunkedOpenAIResponse(text, topic, maxTokens);
 }
 
-/**
- * Retrieves the content of a webpage behind a paywall by using a proxy website.
- *
+/** Retrieves the content of a webpage behind a paywall by using a proxy website.
  * @param {string} link - The URL of the webpage.
  * @return {Promise<{url: string, content: string}>} A promise that resolves to an object containing the content of the webpage 
  * and the URL of the retrieved content if it is successfully retrieved, or an empty string if an error occurs.     */
@@ -475,10 +472,11 @@ async function getProxiedContent(link) {
         const browser = await puppeteer.launch({
             headless: true,
             args: ['--no-sandbox', '--disable-setuid-sandbox'],
-            executablePath: BROWSER_PATH
+            executablePath: BROWSER_PATH,
+            protocolTimeout: 120000
         });
         const page = await browser.newPage();
-        await page.setDefaultNavigationTimeout(60000);
+        await page.setDefaultNavigationTimeout(120000);
         await page.goto('https://www.removepaywall.com/', { waitUntil: 'domcontentloaded' });
         await page.type('input#simple-search', link);
         await page.click('#__next > div > section > div > header > div > div:nth-child(4) > form > button');
@@ -495,9 +493,7 @@ async function getProxiedContent(link) {
     }
 }
 
-/**
- * Retrieves a summary of the text using OpenAI's GPT-4 model.
- *
+/** Retrieves a summary of the text using OpenAI's GPT-4 model.
  * @param {string} link - The URL of the webpage
  * @param {string} fullText - The text content of the news article
  * @param {number} numberOfLinks - The total number of links under the same TERM search
@@ -527,9 +523,7 @@ const summarizeText = async (link, fullText, numberOfLinks, topic) => {
 };
 
 
-/**
- * Checks if a given date is recent.
- *
+/** Checks if a given date is recent.
  * @param {string} dateText - The date to be checked.
  * @return {boolean} Returns true if the date is recent, false otherwise.   */
 function isRecent(dateText) {
@@ -819,7 +813,7 @@ async function fetchTextWithRetry(url) {
  * @return {Promise<any>} A Promise that resolves to the fetched data.
  * @throws {Error} If the maximum number of retries is reached. */
 async function fetchWithRetry(url, retries = 0, initialDelay = INITIAL_DEALY) {
-    let urlToFetch = normalizeUrl(url);
+    let urlToFetch = retries % 2 == 0 ? normalizeUrl(url) : denormalizeUrl(url);
     if (globalStopFlag) {
         throw new LightweightError('Crawl stopped');
     }
@@ -1060,6 +1054,103 @@ function createWorker(workerData) {
         }, workerData.cycleEndTime - Date.now());
     });
 }
+
+/** Checks if the given URL is valid.
+ * @param {string} url - The URL to be validated.
+ * @return {boolean} Returns true if the URL is valid, false otherwise. */
+const isURLValid = (url) => {
+    try {
+        new URL(url);
+        if (url.includes('http')) {
+            return true;
+        } else  {
+            return false;
+        }
+    } catch (_) {
+        return false;
+    }
+}
+
+/** Denormalizes a URL by adding a trailing slash.
+ * @param {string} url - The URL to denormalize.
+ * @return {string} The denormalized URL with a trailing slash.   */
+function denormalizeUrl (url) {
+    return normalizeUrl(url)+"/";
+}
+
+function getDomain(url) {
+    const parsedUrl = parseUrl(url);
+    return parsedUrl.hostname;
+}
+
+/** Fetches data from a given URL with retry logic.
+ * @param {string} url - The URL to fetch data from. 
+ * @param {number} [retries=0] - The number of retries.
+ * @param {number} [initialDelay=INITIAL_DEALY] - The initial delay in milliseconds.
+ * @return {Promise<Object>} A Promise that resolves to an object with data and headers.
+ * @throws {Error} If an error occurs during the fetch. */
+async function fetchForRSS(url, retries = 0, initialDelay = 500) {
+    const MAX_RETRIES = 5;
+    const normalizedUrl = normalizeUrl(url);
+    const domain = getDomain(normalizedUrl);
+
+    // Respect domain-specific delays
+    if (domainDelays.has(domain)) {
+        const timeToWait = domainDelays.get(domain) - Date.now();
+        if (timeToWait > 0) {
+            await new Promise(resolve => setTimeout(resolve, timeToWait));
+        }
+    }
+
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+        try {
+            const response = await axios.get(normalizedUrl, {
+                headers: {
+                    'User-Agent': userAgents[Math.floor(Math.random() * userAgents.length)]
+                },
+                timeout: 30000,
+                maxRedirects: 5
+            });
+
+            // Set a delay for the next request to this domain
+            domainDelays.set(domain, Date.now() + 5000);  // 5 second delay
+
+            return {
+                data: response.data,
+                headers: response.headers
+            };
+        } catch (error) {
+            console.error(`Attempt ${attempt + 1} failed for ${normalizedUrl}. Error: ${error.message}`);
+
+            if (error.response && error.response.status === 429) {
+                const retryAfter = error.response.headers['retry-after'];
+                const delay = retryAfter ? parseInt(retryAfter) * 1000 : 60000;  // Default to 60 seconds if no Retry-After header
+                console.log(`Rate limited. Waiting for ${delay/1000} seconds before retry...`);
+                await new Promise(resolve => setTimeout(resolve, delay));
+                continue;  // Skip the usual retry logic and try again immediately after the delay
+            }
+
+            if (attempt === MAX_RETRIES || !error.response || error.response.status === 404) {
+                throw new Error(`Failed to fetch ${normalizedUrl} after ${attempt + 1} attempts: ${error.message}`);
+            }
+
+            const delay = initialDelay * Math.pow(2, attempt);
+            console.log(`Retrying in ${delay}ms...`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+        }
+    }
+}
+
+/** Helper function to guess content type from the response data */
+// function guessContentType(data) {
+//     if (data.trim().startsWith('<?xml') || data.trim().startsWith('<rss')) {
+//         return 'application/rss+xml';
+//     } else if (data.trim().startsWith('{')) {
+//         return 'application/json';
+//     } else {
+//         return 'text/html';
+//     }
+// }
 
 /** Asynchronously detects and retrieves RSS feeds from the provided URL.
  * @param {string} url - The URL to fetch the RSS feed from.
@@ -1882,7 +1973,7 @@ const sendEmail = async (emailTime) => {
 
     while (now < new Date(emailTime.getTime() + MINUTES_TO_CLOSE)) {
         console.log("Waiting...");
-        await new Promise((r) => setTimeout(r, 90000));
+        await new Promise((r) => setTimeout(r, 30000));
         now.setTime(Date.now());
     }
 
@@ -1971,7 +2062,7 @@ const crawlWebsites = async (cycleEndTime) => {
     for (const term of terms) allResults[term] = [];
 
     const shuffledWebsites = shuffleArray([...websites]);
-    const maxConcurrentWorkers = os.cpus().length;
+    const maxConcurrentWorkers = Math.floor(os.cpus().length*0.5);
     let MINIMUM_AMOUNT_WORKERS = 1 + Math.floor(maxConcurrentWorkers * 0.2);
     const websiteChunks = chunkArray(shuffledWebsites, maxConcurrentWorkers);
 
