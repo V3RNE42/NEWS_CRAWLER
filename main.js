@@ -1148,6 +1148,12 @@ async function detectRSS(url, baseUrl, rssFeeds = new Set(), depth = 0, visited 
             }
             // Remove trailing slash
             fullUrl = fullUrl.href.replace(/\/$/, '');
+            //if '%' is included within fullUrl, crop everything from and including '%'
+            if (fullUrl.includes('%')) {
+                const index = fullUrl.indexOf('%');
+                fullUrl = fullUrl.substring(0, index);
+            }
+
         } catch (error) {
             console.error(`Invalid URL: ${url}`, error.message);
             return Array.from(rssFeeds);
@@ -1160,7 +1166,10 @@ async function detectRSS(url, baseUrl, rssFeeds = new Set(), depth = 0, visited 
             fullUrl.includes('youtube.com') || 
             fullUrl.includes('twitter.com') ||
             fullUrl.includes('facebook.com') ||
+            fullUrl.includes('/suscri') ||
+            fullUrl.includes('/subscri') ||
             fullUrl.includes('/donate') ||
+            fullUrl.includes('redirect_to') ||
             fullUrl.includes('linkedin.com/pub/dir')) {
             return Array.from(rssFeeds);
         }
