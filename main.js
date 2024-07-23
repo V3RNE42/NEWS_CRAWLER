@@ -864,8 +864,8 @@ const relevanceScoreAndMaxCommonFoundTerm = (title, articleContent) => {
         }
     });
 
-    // Check if any term has a frequency of at least 2
-    const hasMinimumFrequency = Object.values(termFrequencies).some(count => count >= 2);
+    // Check if any term has a frequency of at least 3
+    const hasMinimumFrequency = Object.values(termFrequencies).some(count => count >= 3);
 
     if (!hasMinimumFrequency) {
         return { score: 0, mostCommonTerm: '' };
