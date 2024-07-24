@@ -268,6 +268,11 @@ process.on('uncaughtException', (error) => {
     checkSafeAndReboot('Uncaught Exception');
 });
 
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+    saveLog('unhandled_rejection');
+    checkSafeAndReboot('Unhandled Rejection');
+});
 
 function checkSafeAndReboot(reason) {
     console.log(`Checking if it's safe to reboot due to: ${reason}`);
@@ -277,8 +282,13 @@ function checkSafeAndReboot(reason) {
             console.log('Skipping reboot due to error reading flag.');
             process.exit(1);
         } else if (data.trim() === SAFE_REBOOT_MESSAGE) {
-            console.log('Safe to reboot flag is set. Initiating reboot...');
-            initiateReboot(reason);
+            if (reason.includes('FATAL')) {
+                console.log('Safe to reboot flag is set. Initiating reboot...');
+                initiateReboot(reason);
+            } else {
+                console.log('That was NOT fatal. Exiting without reboot.');
+                process.exit(1);
+            }
         } else {
             console.log('Not safe to reboot. Exiting without reboot.');
             process.exit(1);
