@@ -383,7 +383,7 @@ async function extractArticleText(url) {
         articleHtml = cleanText(articleHtml);
         try {
             if (countTokens(articleHtml) < 100) {
-                let { url: proxiedUrl, content: text } = await getProxiedContent(url);
+                let { url: proxiedUrl, content: text } = await getProxiedContent(removeWeirdCharactersFromUrl(url));
                 text = cleanText(text);
                 articleHtml = countTokens(articleHtml) < countTokens(text) ? text : articleHtml;
             }
@@ -909,10 +909,10 @@ async function fetchWithRetry(url, retries = 0, initialDelay = INITIAL_DELAY, tr
         throw new LightweightError('Crawl stopped');
     }
 
-    let urlWithoutSlash = normalizeUrl(url);
-    let urlWithSlash = denormalizeUrl(url);
+    let urlWithoutSlash = normalizeUrl(removeWeirdCharactersFromUrl(url));
+    let urlWithSlash = denormalizeUrl(removeWeirdCharactersFromUrl(url));
 
-    let urlToFetch = triedBoth ? url : (retries % 2 === 0 ? urlWithoutSlash : urlWithSlash);
+    let urlToFetch = triedBoth ? removeWeirdCharactersFromUrl(url) : (retries % 2 === 0 ? urlWithoutSlash : urlWithSlash);
 
     try {
         const randomDelay = Math.floor(Math.random() * initialDelay);
