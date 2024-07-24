@@ -265,13 +265,13 @@ let globalStopFlag = false;
 process.on('uncaughtException', (error) => {
     console.error('Uncaught Exception:', error);
     saveLog('uncaught_exception');
-    checkSafeAndReboot('Uncaught Exception');
+    checkSafeAndReboot(error.message);
 });
 
 process.on('unhandledRejection', (reason, promise) => {
     console.error('Unhandled Rejection at:', promise, 'reason:', reason);
     saveLog('unhandled_rejection');
-    checkSafeAndReboot('Unhandled Rejection');
+    checkSafeAndReboot(error.message);
 });
 
 function checkSafeAndReboot(reason) {
