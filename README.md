@@ -46,7 +46,7 @@ To use this NodeJS webcrawler newsletter, follow these steps:
 5. Run the webcrawler by executing the following command:
 
     ```
-    node --expose-gc main.js
+    npm start
     ```
 
     This will start the webcrawler and it will begin crawling the target website based on the provided configuration.
@@ -114,7 +114,7 @@ Para utilizar esta newsletter de webcrawler de NodeJS, sigue estos pasos:
 5. Ejecuta el webcrawler ejecutando el siguiente comando:
 
     ```bash
-    node --expose-gc main.js
+    npm start
     ```
 
     Esto iniciará el webcrawler y comenzará a rastrear el sitio web objetivo según la configuración proporcionada.
