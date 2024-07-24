@@ -81,6 +81,61 @@ class LightweightError extends Error {
     }
 }
 
+
+/** Selectors to filter out anything that's not the main article content we're scraping */
+const unwantedSelectors = [
+    // Sidebars and sidebar sections
+    'aside',
+    // Comment sections
+    'div[id^="comments"]',
+    'section[id^="comments"]',
+    'div[class*="comments"]',
+    'div[class*="comment-respond"]',
+    'section[class*="comment"]',
+    // Related or most-read sections
+    'section[class*="related"]',
+    'div[class*="related"]',
+    'aside[class*="related"]',
+    'section[class*="most-read"]',
+    'div[class*="most-read"]',
+    'aside[class*="most-read"]',
+    'div[class*="suggested-news"]',
+    'div[class*="recirculation"]',
+    'section[class*="te-puede-interesar"]',
+    'section[class*="tambien-puedes-leer"]',
+    'section[data-block-name*="n_otras_noticias"]',
+    // Subscription and newsletter sections
+    'article[class*="newsletter"]',
+    'section[id*="suscription"]',
+    'div[class*="cta"]',
+    'div[class*="subscription"]',
+    'div[class*="feed-list"]',
+    'div[class*="widget-content"]',
+    // Author information
+    'div[class*="author"]',
+    'div[class*="bio"]',
+    // Miscellaneous sections, footer, and others
+    'footer',
+    'div[class*="meta-tags"]',
+    'div[class*="widget"]',
+    'div[id*="headerScroll"]',
+    'div[class*="lazyload-wrapper"]',
+    'amp-list[src*="most_read"]',
+    'div[class*="ez-toc"]',
+    'ev-content-recommendations',
+    'div[class*="sticky"]',
+    'div[class*="mas-leidas"]',
+    'section[class*="popular-posts"]',
+    'div[class*="best-comments"]',
+    'span[class*="content-related"]',
+    'div[id*="other-content"]',
+    'div[class*="o-carousel"]',
+    'div[class*="share-after"]',
+    'div[class*="Page-below"]',
+    'div[class*="footer"]',
+    'footer[class*="footer"]'
+];
+
 /** Patterns that contain comment sections **/
 const patternsToRemove = [
     /<!\[CDATA\[ /gi,
@@ -301,12 +356,16 @@ async function extractArticleText(url) {
  * @return {string} The cleaned HTML text.  */
 const cleanText = (html) => {
     let cleanedHtml = removePatterns(html);
+    const $ = cheerio.load(cleanedHtml);
 
-    cleanedHtml = sanitizeHtml(cleanedHtml, {
-        allowedTags: [],
-        allowedAttributes: {}
+    // Remove the unwanted tags
+    unwantedSelectors.forEach(selector => {
+        $(selector).remove();
     });
 
+    cleanedHtml = $.html();
+
+    // Further sanitize and clean the text
     cleanedHtml = cleanedHtml
         .replace(/\n/g, ' ')
         .replace(/\t/g, ' ')
