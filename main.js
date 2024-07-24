@@ -81,65 +81,77 @@ class LightweightError extends Error {
     }
 }
 
+/* Function to generate extensive RegExp patterns for a given tag, attributes, and values*/
+const generatePatterns = (tag, attributes) => {
+    let patterns = [];
+    attributes.forEach(attr => {
+        attr.values.forEach(value => {
+            patterns.push(new RegExp(`<${tag}[^>]*${attr.name}="[^"]*${value}[^"]*"[^>]*>[\\s\\S]*?<\\/${tag}>`, 'gi'));
+            patterns.push(new RegExp(`<${tag}[^>]*${attr.name}='[^']*${value}[^']*'[^>]*>[\\s\\S]*?<\\/${tag}>`, 'gi'));
+            patterns.push(new RegExp(`<${tag}[^>]*${attr.name}=[^\\s>]*${value}[^\\s>]*[^>]*>[\\s\\S]*?<\\/${tag}>`, 'gi'));
+        });
+    });
+    return patterns;
+};
 
-/** Selectors to filter out anything that's not the main article content we're scraping */
-const unwantedSelectors = [
-    // Sidebars and sidebar sections
-    'aside',
-    // Comment sections
-    'div[id^="comments"]',
-    'section[id^="comments"]',
-    'div[class*="comments"]',
-    'div[class*="comment-respond"]',
-    'section[class*="comment"]',
-    // Related or most-read sections
-    'section[class*="related"]',
-    'div[class*="related"]',
-    'aside[class*="related"]',
-    'section[class*="most-read"]',
-    'div[class*="most-read"]',
-    'aside[class*="most-read"]',
-    'div[class*="suggested-news"]',
-    'div[class*="recirculation"]',
-    'section[class*="te-puede-interesar"]',
-    'section[class*="tambien-puedes-leer"]',
-    'section[data-block-name*="n_otras_noticias"]',
-    // Subscription and newsletter sections
-    'article[class*="newsletter"]',
-    'section[id*="suscription"]',
-    'div[class*="cta"]',
-    'div[class*="subscription"]',
-    'div[class*="feed-list"]',
-    'div[class*="widget-content"]',
-    // Author information
-    'div[class*="author"]',
-    'div[class*="bio"]',
-    // Miscellaneous sections, footer, and others
-    'footer',
-    'div[class*="meta-tags"]',
-    'div[class*="widget"]',
-    'div[id*="headerScroll"]',
-    'div[class*="lazyload-wrapper"]',
-    'amp-list[src*="most_read"]',
-    'div[class*="ez-toc"]',
-    'ev-content-recommendations',
-    'div[class*="sticky"]',
-    'div[class*="mas-leidas"]',
-    'section[class*="popular-posts"]',
-    'div[class*="best-comments"]',
-    'span[class*="content-related"]',
-    'div[id*="other-content"]',
-    'div[class*="o-carousel"]',
-    'div[class*="share-after"]',
-    'div[class*="Page-below"]',
-    'div[class*="footer"]',
-    'footer[class*="footer"]'
+/* Attributes and their potential values commonly associated with the unwanted sections */
+const attributes = [
+    { name: 'id', values: ['comments', 'comment-respond', 'related', 'most-read', 'newsletter', 'suscription', 'headerScroll', 'other-content', 'footer'] },
+    { name: 'class', values: ['comments', 'comment-respond', 'related', 'most-read', 'suggested-news', 'recirculation', 'newsletter', 'cta', 'subscription', 'author', 'bio', 'meta-tags', 'widget', 'lazyload-wrapper', 'ez-toc', 'sticky', 'mas-leidas', 'popular-posts', 'best-comments', 'content-related', 'o-carousel', 'share-after', 'Page-below', 'footer'] },
+    { name: 'src', values: ['most_read'] }
 ];
 
-/** Patterns that contain comment sections **/
-const patternsToRemove = [
-    /<!\[CDATA\[ /gi,
-    / ]]>/gi,
+/** Hyperexhaustive pattern list that contains unwanted sections of HTML*/
+let patternsToRemoveFromHTML = [
+    ...generatePatterns('aside', attributes),
+    ...generatePatterns('div', attributes),
+    ...generatePatterns('section', attributes),
+    ...generatePatterns('footer', attributes),
+    ...generatePatterns('article', attributes),
+    // Sidebars and sidebar sections
+    /<aside[^>]*>[\s\S]*?<\/aside>/gi,
+    // Related news sections
+    /<section[^>]*(id|class)="[^"]*related[^"]*"[^>]*>[\s\S]*?<\/section>/gi,
+    /<section[^>]*(id|class)="[^"]*puede-interesar[^"]*"[^>]*>[\s\S]*?<\/section>/gi,
+    /<div[^>]*(id|class)="[^"]*related[^"]*"[^>]*>[\s\S]*?<\/div>/gi,
+    /<aside[^>]*(id|class)="[^"]*related[^"]*"[^>]*>[\s\S]*?<\/aside>/gi,
+    /<section[^>]*(id|class)="[^"]*most-read[^"]*"[^>]*>[\s\S]*?<\/section>/gi,
+    /<div[^>]*(id|class)="[^"]*most-read[^"]*"[^>]*>[\s\S]*?<\/div>/gi,
+    /<aside[^>]*(id|class)="[^"]*most-read[^"]*"[^>]*>[\s\S]*?<\/aside>/gi,
+    /<div[^>]*(id|class)="[^"]*suggested-news[^"]*"[^>]*>[\s\S]*?<\/div>/gi,
+    /<div[^>]*(id|class)="[^"]*recirculation[^"]*"[^>]*>[\s\S]*?<\/div>/gi,
+    // Subscription and newsletter sections
+    /<article[^>]*(id|class)="[^"]*newsletter[^"]*"[^>]*>[\s\S]*?<\/article>/gi,
+    /<section[^>]*(id|class)="[^"]*suscription[^"]*"[^>]*>[\s\S]*?<\/section>/gi,
+    /<div[^>]*(id|class)="[^"]*cta[^"]*"[^>]*>[\s\S]*?<\/div>/gi,
+    /<div[^>]*(id|class)="[^"]*subscription[^"]*"[^>]*>[\s\S]*?<\/div>/gi,
+    // Author information
+    /<div[^>]*(id|class)="[^"]*author[^"]*"[^>]*>[\s\S]*?<\/div>/gi,
+    /<div[^>]*(id|class)="[^"]*bio[^"]*"[^>]*>[\s\S]*?<\/div>/gi,
+    // Miscellaneous sections, footer, and others
+    /<footer[^>]*>[\s\S]*?<\/footer>/gi,
+    /<div[^>]*(id|class)="[^"]*meta-tags[^"]*"[^>]*>[\s\S]*?<\/div>/gi,
+    /<div[^>]*(id|class)="[^"]*widget[^"]*"[^>]*>[\s\S]*?<\/div>/gi,
+    /<div[^>]*(id|class)="[^"]*headerScroll[^"]*"[^>]*>[\s\S]*?<\/div>/gi,
+    /<div[^>]*(id|class)="[^"]*lazyload-wrapper[^"]*"[^>]*>[\s\S]*?<\/div>/gi,
+    /<amp-list[^>]*src="[^"]*most_read[^"]*"[^>]*>[\s\S]*?<\/amp-list>/gi,
+    /<div[^>]*(id|class)="[^"]*ez-toc[^"]*"[^>]*>[\s\S]*?<\/div>/gi,
+    /<ev-content-recommendations[^>]*>[\s\S]*?<\/ev-content-recommendations>/gi,
+    /<div[^>]*(id|class)="[^"]*sticky[^"]*"[^>]*>[\s\S]*?<\/div>/gi,
+    /<div[^>]*(id|class)="[^"]*mas-leidas[^"]*"[^>]*>[\s\S]*?<\/div>/gi,
+    /<section[^>]*(id|class)="[^"]*popular-posts[^"]*"[^>]*>[\s\S]*?<\/section>/gi,
+    /<span[^>]*(id|class)="[^"]*content-related[^"]*"[^>]*>[\s\S]*?<\/span>/gi,
+    /<div[^>]*(id|class)="[^"]*other-content[^"]*"[^>]*>[\s\S]*?<\/div>/gi,
+    /<div[^>]*(id|class)="[^"]*o-carousel[^"]*"[^>]*>[\s\S]*?<\/div>/gi,
+    /<div[^>]*(id|class)="[^"]*share-after[^"]*"[^>]*>[\s\S]*?<\/div>/gi,
+    /<div[^>]*(id|class)="[^"]*Page-below[^"]*"[^>]*>[\s\S]*?<\/div>/gi,
+    /<div[^>]*(id|class)="[^"]*footer[^"]*"[^>]*>[\s\S]*?<\/div>/gi,
+    /<footer[^>]*(id|class)="[^"]*footer[^"]*"[^>]*>[\s\S]*?<\/footer>/gi,
+    // Comment sections
+    /<div[^>]*(id|class)="[^"]*comments[^"]*"[^>]*>[\s\S]*?<\/div>/gi,
+    /<section[^>]*(id|class)="[^"]*comments[^"]*"[^>]*>[\s\S]*?<\/section>/gi,
+    /<div[^>]*(id|class)="[^"]*comment-respond[^"]*"[^>]*>[\s\S]*?<\/div>/gi,
+    /<div[^>]*(id|class)="[^"]*best-comments[^"]*"[^>]*>[\s\S]*?<\/div>/gi,
     /<div id="comments" class="comments-area"*>[\s\S]*?<\/div>/gi,
     /<div id="comments"[\s\S]*?<\/div>\s*<\/div>\s*<\/div>/gi,
     /<div[^>]*(?:id|class)=[^>]*comments?[^>]*>[\s\S]*?<\/div>/gi,
@@ -167,8 +179,16 @@ const patternsToRemove = [
     /<div[^>]*(?:id|class)=[^>]*comment-awaiting-moderation[^>]*>[\s\S]*?<\/div>/gi,
     /<p[^>]*(?:id|class)=[^>]*comment-notes[^>]*>[\s\S]*?<\/p>/gi,
     /<p[^>]*(?:id|class)=[^>]*comment-form-[^>]*>[\s\S]*?<\/p>/gi,
-    /<div[^>]*(?:id|class)=[^>]*comment-subscription-form[^>]*>[\s\S]*?<\/div>/gi
+    /<div[^>]*(?:id|class)=[^>]*comment-subscription-form[^>]*>[\s\S]*?<\/div>/gi,
+    // Additional specific patterns
+    /<amp-list[^>]*src="[^"]*most_read[^"]*"[^>]*>[\s\S]*?<\/amp-list>/gi,
+    /<ev-content-recommendations[^>]*>[\s\S]*?<\/ev-content-recommendations>/gi,
+    // Broad patterns to capture common unwanted tags
+    /<aside[^>]*>[\s\S]*?<\/aside>/gi,
+    /<footer[^>]*>[\s\S]*?<\/footer>/gi
 ];
+
+patternsToRemoveFromHTML = Array.from(new Set(patternsToRemoveFromHTML));
 
 let globalLinks = new Set();
 
@@ -190,11 +210,11 @@ function logToConsoleAndMemory(type, args) {
 /** Removes patterns from the content recursively.
  * @param {string} content - The content to remove patterns from.
  * @return {string} The content with patterns removed.      */
-const removePatterns = (content) => {
+const removePatterns = (content, ArrRegExpToRemove) => {
     let newContent = content;
     let changed = false;
 
-    for (let pat of patternsToRemove) {
+    for (let pat of ArrRegExpToRemove) {
         const tempContent = newContent.replace(pat, '');
         if (tempContent !== newContent) {
             newContent = tempContent;
@@ -203,7 +223,7 @@ const removePatterns = (content) => {
     }
 
     if (changed) {
-        return removePatterns(newContent);
+        return removePatterns(newContent, ArrRegExpToRemove);
     }
 
     return newContent;
@@ -355,16 +375,7 @@ async function extractArticleText(url) {
  * @param {string} html - The HTML text to be cleaned.
  * @return {string} The cleaned HTML text.  */
 const cleanText = (html) => {
-    let cleanedHtml = removePatterns(html);
-    const $ = cheerio.load(cleanedHtml);
-
-    // Remove the unwanted tags
-    unwantedSelectors.forEach(selector => {
-        $(selector).remove();
-    });
-
-    cleanedHtml = $.html();
-
+    let cleanedHtml = removePatterns(html, patternsToRemoveFromHTML);
     cleanedHtml = sanitizeHtml(cleanedHtml, {
         allowedTags: [],
         allowedAttributes: {}
@@ -373,6 +384,7 @@ const cleanText = (html) => {
     cleanedHtml = cleanedHtml
         .replace(/\n/g, ' ')
         .replace(/\t/g, ' ')
+        .replace(/<[^>]*>/g, '')
         .replace(/\s{2,}/g, ' ')
         .trim();
 
@@ -1528,7 +1540,7 @@ async function scrapeRSSFeed(feedUrl, workerAddedLinks) {
 
             try {
                 let link = extractLink(item);
-                link = removePatterns(link);
+                link = removePatterns(link, [/<!\[CDATA\[ /gi, / ]]>/gi]);
                 link = removeWeirdCharactersFromUrl(link);
 
                 if (Array.isArray(link)) {
