@@ -271,7 +271,7 @@ process.on('uncaughtException', (error) => {
 process.on('unhandledRejection', (reason, promise) => {
     console.error('Unhandled Rejection at:', promise, 'reason:', reason);
     saveLog('unhandled_rejection');
-    checkSafeAndReboot(error.message);
+    checkSafeAndReboot(reason);
 });
 
 function checkSafeAndReboot(reason) {
