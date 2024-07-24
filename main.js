@@ -94,12 +94,26 @@ const generatePatterns = (tag, attributes) => {
     return patterns;
 };
 
+/* Function to generate patterns for attributes containing specific substrings*/
+const generateContainsPatterns = (tag, substrings) => {
+    let patterns = [];
+    substrings.forEach(substring => {
+        patterns.push(new RegExp(`<${tag}[^>]*class="[^"]*${substring}[^"]*"[^>]*>[\\s\\S]*?<\\/${tag}>`, 'gi'));
+        patterns.push(new RegExp(`<${tag}[^>]*class='[^']*${substring}[^']*'[^>]*>[\\s\\S]*?<\\/${tag}>`, 'gi'));
+        patterns.push(new RegExp(`<${tag}[^>]*class=[^\\s>]*${substring}[^\\s>]*[^>]*>[\\s\\S]*?<\\/${tag}>`, 'gi'));
+    });
+    return patterns;
+};
+
 /* Attributes and their potential values commonly associated with the unwanted sections */
 const attributes = [
     { name: 'id', values: ['comments', 'comment-respond', 'related', 'most-read', 'newsletter', 'suscription', 'headerScroll', 'other-content', 'footer'] },
     { name: 'class', values: ['comments', 'comment-respond', 'related', 'most-read', 'suggested-news', 'recirculation', 'newsletter', 'cta', 'subscription', 'author', 'bio', 'meta-tags', 'widget', 'lazyload-wrapper', 'ez-toc', 'sticky', 'mas-leidas', 'popular-posts', 'best-comments', 'content-related', 'o-carousel', 'share-after', 'Page-below', 'footer'] },
     { name: 'src', values: ['most_read'] }
 ];
+
+/* Substrings to match attributes containing specific substrings*/
+const substrings = ['o-carousel', 'c-article'];
 
 /** Hyperexhaustive pattern list that contains unwanted sections of HTML*/
 let patternsToRemoveFromHTML = [
@@ -108,6 +122,9 @@ let patternsToRemoveFromHTML = [
     ...generatePatterns('section', attributes),
     ...generatePatterns('footer', attributes),
     ...generatePatterns('article', attributes),
+    ...generateContainsPatterns('div', substrings),
+    ...generateContainsPatterns('section', substrings),
+    ...generateContainsPatterns('article', substrings),
     // Sidebars and sidebar sections
     /<aside[^>]*>[\s\S]*?<\/aside>/gi,
     // Related news sections
@@ -1001,10 +1018,10 @@ const relevanceScoreAndMaxCommonFoundTerm = (title, articleContent) => {
     let coOccurrenceSum = coOccurrenceCount;
 
     let weights = {
-        frequency: 0.4,
-        presence: 0.3,   // Increased weight for presence
-        density: 0.2,
-        coOccurrence: 0.1
+        frequency: 0.1,
+        presence: 0.2,
+        density: 0.3,
+        coOccurrence: 0.4
     };
 
     let globalRelevanceScore =
