@@ -365,11 +365,14 @@ const cleanText = (html) => {
 
     cleanedHtml = $.html();
 
-    // Further sanitize and clean the text
+    cleanedHtml = sanitizeHtml(cleanedHtml, {
+        allowedTags: [],
+        allowedAttributes: {}
+    });
+
     cleanedHtml = cleanedHtml
         .replace(/\n/g, ' ')
         .replace(/\t/g, ' ')
-        .replace(/<[^>]*>/g, '')
         .replace(/\s{2,}/g, ' ')
         .trim();
 
