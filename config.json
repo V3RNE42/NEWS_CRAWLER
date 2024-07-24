@@ -14,7 +14,6 @@
         "path": "placeholder"
     },
     "text_analysis": {
-        "topic_sensitivity": 1.1,
         "language": "ES",
         "ignore_redundancy": false
     },

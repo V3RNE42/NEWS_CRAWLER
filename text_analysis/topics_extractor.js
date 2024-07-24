@@ -1,62 +1,66 @@
-const { stopwordsEs, stopwordsEn } = require("./stopWords");
+const natural = require('natural');
+const { TfIdf } = natural;
 const sanitizeHtml = require('sanitize-html');
 
-function filterWords(words, stopwords) {
-    const stopwordsSet = new Set(stopwords);
-    const result = [];
-    for (let i = 0; i < words.length; i++) {
-        const word = words[i];
-        if (!stopwordsSet.has(word)) {
-            result.push(word);
-        }
+function stemWord(word, language) {
+    if (language === 'ES') {
+        return natural.PorterStemmerEs.stem(word);
     }
-    return result;
+    return natural.PorterStemmer.stem(word);
 }
 
-/**
- * Extracts the main topics from a given text.
- *
- * @param {string} text - The text from which to extract the main topics.
- * @param {string} language - The language of the text. If 'ES', the text is normalized and special characters are removed.
- * @param {number} [sensitivity=5] - The sensitivity level for determining the main topics. Higher sensitivity means less false positives and more false negatives.
- * @return {string[]} An array of strings representing the main topics extracted from the text.     */
-function getMainTopics(text, language, sensitivity = 5) {
+function extractNGrams(words, n) {
+    const ngrams = [];
+    for (let i = 0; i <= words.length - n; i++) {
+        ngrams.push(words.slice(i, i + n).join(' '));
+    }
+    return ngrams;
+}
+
+function calculateTopicCount(tokenCount) {
+    return Math.max(5, Math.min(50, Math.floor(Math.log2(tokenCount) * 2 + 5)));
+}
+
+function getMainTopics(text, language) {
+    // Sanitize and preprocess the text
     text = sanitizeHtml(text, { allowedTags: [], allowedAttributes: {} });
     text = text.toLowerCase();
     text = text.replace(/[^\w\s]/gi, '');
-    const words = text.split(/\s+/);
-    const filteredWords = filterWords(words, language == 'ES' ? stopwordsEs : stopwordsEn);
     
-    const wordCount = {};
-    for (let i = 0; i < filteredWords.length; i++) {
-        const word = filteredWords[i];
-        if (wordCount[word]) {
-            wordCount[word]++;
-        } else {
-            wordCount[word] = 1;
-        }
-    }
+    const words = text.split(/\s+/).filter(word => word.length > 1);
     
-    let sortedWords = Object.entries(wordCount).sort((a, b) => b[1] - a[1]);
-    let totalWordCount = 0;
-    for (let i = 0; i < sortedWords.length; i++) {
-        totalWordCount += sortedWords[i][1];
-    }
-    let threshold = Math.floor(totalWordCount * (1/sensitivity));
-    let result = [];
-
-    while (threshold > 0) {
-        threshold -= sortedWords[0][1];
-        result.push(sortedWords.shift());
-    }
-
-    result = result.map(word => word[0]);
-
-    return result;
+    // Calculate the number of topics based on the token count
+    const topicCount = calculateTopicCount(words.length);
+    
+    // Stem words
+    const stemmedWords = words.map(word => stemWord(word, language));
+    
+    // Extract n-grams (1-grams, 2-grams, and 3-grams)
+    const unigrams = stemmedWords;
+    const bigrams = extractNGrams(stemmedWords, 2);
+    const trigrams = extractNGrams(stemmedWords, 3);
+    
+    // Combine all n-grams
+    const allGrams = [...unigrams, ...bigrams, ...trigrams];
+    
+    // Use TF-IDF to score terms
+    const tfidf = new TfIdf();
+    tfidf.addDocument(allGrams);
+    
+    // Get top terms based on TF-IDF score
+    const topTerms = [];
+    tfidf.listTerms(0 /*document index*/).forEach((item) => {
+        topTerms.push({ term: item.term, score: item.tfidf });
+    });
+    
+    // Sort terms by TF-IDF score and get top N
+    const sortedTerms = topTerms.sort((a, b) => b.score - a.score).slice(0, topicCount);
+    
+    // Return only the terms
+    return sortedTerms.map(item => item.term.toLowerCase());
 }
 
 module.exports = {
     getMainTopics,
-    sanitizeHtml,
-    filterWords
+    sanitizeHtml
 }

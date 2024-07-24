@@ -1937,7 +1937,7 @@ async function removeIrrelevantArticles(results) {
 
             let textToAnalyze = article.title + ' ' + article.fullText;
 
-            let mainTopics = getMainTopics(textToAnalyze, LANGUAGE, SENSITIVITY);
+            let mainTopics = getMainTopics(textToAnalyze, LANGUAGE);
             if (!mainTopics.some(topic => terms.includes(topic.toLowerCase())) && article.score <= twentyPercentile) {
                 console.log(`Irrelevant article discarded: ${article.link}`);
                 continue;
