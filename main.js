@@ -871,7 +871,7 @@ function isRecent(dateText) {
  * @param {string} url 
  * @returns {string} The text data      */
 async function fetchTextWithRetry(url) {
-    const response = await fetchWithRetry(url);
+    const response = await fetchWithRetry(removeWeirdCharactersFromUrl(url));
     if (typeof response === 'string') {
         return response;
     } else if (response && typeof response.data === 'string') {
@@ -909,10 +909,10 @@ async function fetchWithRetry(url, retries = 0, initialDelay = INITIAL_DELAY, tr
         throw new LightweightError('Crawl stopped');
     }
 
-    let urlWithoutSlash = normalizeUrl(removeWeirdCharactersFromUrl(url));
-    let urlWithSlash = denormalizeUrl(removeWeirdCharactersFromUrl(url));
+    let urlWithoutSlash = normalizeUrl(url);
+    let urlWithSlash = denormalizeUrl(url);
 
-    let urlToFetch = triedBoth ? removeWeirdCharactersFromUrl(url) : (retries % 2 === 0 ? urlWithoutSlash : urlWithSlash);
+    let urlToFetch = triedBoth ? url : (retries % 2 === 0 ? urlWithoutSlash : urlWithSlash);
 
     try {
         const randomDelay = Math.floor(Math.random() * initialDelay);
@@ -1530,7 +1530,8 @@ async function scrapeRSSFeed(feedUrl, workerAddedLinks) {
     terms.forEach(term => results[term.toLowerCase()] = []);
 
     try {
-        const feedData = await fetchWithRetry(feedUrl);
+        let finalUrl = removeWeirdCharactersFromUrl(feedUrl);
+        const feedData = await fetchWithRetry(finalUrl);
         const sanitizedData = await sanitizeXML(feedData);
 
         const options = {
