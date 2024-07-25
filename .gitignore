@@ -11,3 +11,7 @@ script.js
 *.txt
 test.js
 .vscode
+*.txt
+*.flag
+script.js
+statistics_output.json
