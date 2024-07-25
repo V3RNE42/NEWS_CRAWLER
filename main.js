@@ -6,6 +6,7 @@ const util = require('util');
 const { parse: parseUrl, format } = require('url');
 const { exec } = require('child_process');
 const cheerio = require('cheerio');
+const sanitizeHtml = require('sanitize-html');
 const { decode } = require('html-entities');
 const { XMLParser } = require('fast-xml-parser');
 const axios = require("axios");
@@ -18,13 +19,12 @@ const { parseISO, parse, differenceInHours, isValid, subMinutes } = require('dat
 const { es, enUS } = require('date-fns/locale');
 let { terms, websites } = require("./terminos");
 const config = require("./config.json");
-const { getMainTopics, sanitizeHtml } = require("./text_analysis/topics_extractor");
+const { getMainTopics } = require("./text_analysis/topics_extractor");
 const { findValidChromiumPath } = require("./browser/browserPath");
 
 //IMPORTANT CONSTANTS AND SETTINGS
 const openai = new OpenAI({ apiKey: config.openai.api_key });
 const LANGUAGE = config.text_analysis.language;
-const SENSITIVITY = config.text_analysis.topic_sensitivity;
 const MAX_TOKENS_PER_CALL = config.openai.max_tokens_per_call;
 const IGNORE_REDUNDANCY = config.text_analysis.ignore_redundancy;
 const MAX_RETRIES_PER_FETCH = 3; //to be managed by user configuration
@@ -407,11 +407,16 @@ const cleanText = (html) => {
         allowedTags: [],
         allowedAttributes: {}
     });
-
+    const accentMap = {
+        'á': 'a', 'é': 'e', 'í': 'i', 'ó': 'o', 'ú': 'u',
+        'Á': 'A', 'É': 'E', 'Í': 'I', 'Ó': 'O', 'Ú': 'U',
+        'ñ': 'n', 'Ñ': 'N', 'ü': 'u', 'Ü': 'U'
+    };
     cleanedHtml = cleanedHtml
         .replace(/\n/g, ' ')
         .replace(/\t/g, ' ')
         .replace(/<[^>]*>/g, '')
+        .replace(/[áéíóúñü]/g, char => accentMap[char] || char)
         .replace(/\s{2,}/g, ' ')
         .trim();
 
