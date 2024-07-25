@@ -18,7 +18,8 @@ function scorePhrases(phrases, wordFreq) {
 }
 
 function calculateTopicCount(tokenCount) {
-    return Math.max(5, Math.min(30, Math.floor(Math.log2(tokenCount) * 2.5)));
+    let e = 2.71828;
+    return Math.max(5, Math.min(30, Math.floor(Math.log2(tokenCount) * e)));
 }
 
 function getMainTopics(text) {
