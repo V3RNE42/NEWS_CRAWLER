@@ -1,62 +1,69 @@
-const { stopwordsEs, stopwordsEn } = require("./stopWords");
-const sanitizeHtml = require('sanitize-html');
+const natural = require('natural');
+const { WordTokenizer } = natural;
 
-function filterWords(words, stopwords) {
-    const stopwordsSet = new Set(stopwords);
-    const result = [];
-    for (let i = 0; i < words.length; i++) {
-        const word = words[i];
-        if (!stopwordsSet.has(word)) {
-            result.push(word);
-        }
+function getUniqueNGrams(words, n) {
+    const ngrams = new Set();
+    for (let i = 0; i <= words.length - n; i++) {
+        ngrams.add(words.slice(i, i + n).join(' '));
     }
-    return result;
+    return Array.from(ngrams);
 }
 
-/**
- * Extracts the main topics from a given text.
- *
- * @param {string} text - The text from which to extract the main topics.
- * @param {string} language - The language of the text. If 'ES', the text is normalized and special characters are removed.
- * @param {number} [sensitivity=5] - The sensitivity level for determining the main topics. Higher sensitivity means less false positives and more false negatives.
- * @return {string[]} An array of strings representing the main topics extracted from the text.     */
-function getMainTopics(text, language, sensitivity = 5) {
-    text = sanitizeHtml(text, { allowedTags: [], allowedAttributes: {} });
-    text = text.toLowerCase();
-    text = text.replace(/[^\w\s]/gi, '');
-    const words = text.split(/\s+/);
-    const filteredWords = filterWords(words, language == 'ES' ? stopwordsEs : stopwordsEn);
-    
-    const wordCount = {};
-    for (let i = 0; i < filteredWords.length; i++) {
-        const word = filteredWords[i];
-        if (wordCount[word]) {
-            wordCount[word]++;
-        } else {
-            wordCount[word] = 1;
+function scorePhrases(phrases, wordFreq) {
+    return phrases.map(phrase => {
+        const words = phrase.split(' ');
+        const score = words.reduce((sum, word) => sum + (wordFreq[word] || 0), 0) / words.length;
+        return { phrase, score };
+    });
+}
+
+function calculateTopicCount(tokenCount) {
+    let e = 2.71828;
+    return Math.max(5, Math.min(30, Math.floor(Math.log2(tokenCount) * e)));
+}
+
+function getMainTopics(text) {
+    const tokenizer = new WordTokenizer();
+    const words = tokenizer.tokenize(text);
+
+    // Calculate dynamic topic count
+    const topicCount = calculateTopicCount(words.length);
+
+    // Calculate word frequencies
+    const wordFreq = {};
+    words.forEach(word => {
+        if (word.length > 3) {
+            wordFreq[word] = (wordFreq[word] || 0) + 1;
+        }
+    });
+
+    // Get unique bigrams and trigrams
+    const bigrams = getUniqueNGrams(words, 2);
+    const trigrams = getUniqueNGrams(words, 3);
+
+    // Score phrases
+    const scoredBigrams = scorePhrases(bigrams, wordFreq);
+    const scoredTrigrams = scorePhrases(trigrams, wordFreq);
+
+    // Combine and sort all phrases
+    const allPhrases = [...scoredBigrams, ...scoredTrigrams]
+        .sort((a, b) => b.score - a.score);
+
+    // Select top phrases, ensuring no word is repeated
+    const topPhrases = [];
+    const usedWords = new Set();
+    for (const { phrase } of allPhrases) {
+        const words = phrase.split(' ');
+        if (!words.some(word => usedWords.has(word))) {
+            topPhrases.push(phrase);
+            words.forEach(word => usedWords.add(word));
+            if (topPhrases.length === topicCount) break;
         }
     }
-    
-    let sortedWords = Object.entries(wordCount).sort((a, b) => b[1] - a[1]);
-    let totalWordCount = 0;
-    for (let i = 0; i < sortedWords.length; i++) {
-        totalWordCount += sortedWords[i][1];
-    }
-    let threshold = Math.floor(totalWordCount * (1/sensitivity));
-    let result = [];
 
-    while (threshold > 0) {
-        threshold -= sortedWords[0][1];
-        result.push(sortedWords.shift());
-    }
-
-    result = result.map(word => word[0]);
-
-    return result;
+    return topPhrases;
 }
 
 module.exports = {
-    getMainTopics,
-    sanitizeHtml,
-    filterWords
-}
+    getMainTopics
+};
