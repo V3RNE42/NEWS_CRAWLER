@@ -1914,7 +1914,7 @@ function calculatePercentile(values, percentile) {
 /** Arranges the articles from the given results object based on their terms.
  * @param {Object} results - An object containing articles grouped by terms.
  * @return {Promise<Object>} - A promise that resolves to an object with articles reorganized by term */
-async function removeIrrelevantArticles(results) {
+async function removeIrrelevantArticles(results, terms) {
     let reorganizedResults = {};
 
     let allScores = [];
@@ -2356,7 +2356,7 @@ const crawlWebsites = async (cycleEndTime) => {
 /** Saves the results to a JSON file.
  * @param {Object} results - The results to be saved.
  * @return {Promise<boolean>} - A promise that resolves to a boolean indicating if the crawling is complete.    */
-const saveResults = async (results, emailTime) => {
+const saveResults = async (results, emailTime, terms) => {
     await sleep(30000);
     console.log("Saving results...");
     const resultsPath = path.join(__dirname, CRAWLED_RESULTS_JSON);
@@ -2375,7 +2375,7 @@ const saveResults = async (results, emailTime) => {
 
     const thisIsTheTime = closeToEmailingTime(emailTime);
     if (thisIsTheTime) {
-        results = await removeIrrelevantArticles(results);
+        results = await removeIrrelevantArticles(results, terms);
         if (!IGNORE_REDUNDANCY) {
             results = await removeRedundantArticles(results);
         }
@@ -2414,6 +2414,7 @@ const main = async () => {
     console.log("Starting main process...");
     let resultados;
     let emailTime = new Date();
+    terms = terms.map((term) => term.toLowerCase());
 
     while (!fs.existsSync(path.join(__dirname, CRAWL_COMPLETE_FLAG))) {
         console.log("Starting new crawling cycle...");
@@ -2440,7 +2441,7 @@ const main = async () => {
         }
 
         if (isMainThread) {
-            await saveResults(resultados, emailTime);
+            await saveResults(resultados, emailTime, terms);
             console.log("Results saved.");
         }
 
