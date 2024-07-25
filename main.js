@@ -29,7 +29,7 @@ const MAX_TOKENS_PER_CALL = config.openai.max_tokens_per_call;
 const IGNORE_REDUNDANCY = config.text_analysis.ignore_redundancy;
 const MAX_RETRIES_PER_FETCH = 3; //to be managed by user configuration
 const INITIAL_DELAY = 500; //to be managed by user configuration
-const MINUTES_TO_CLOSE = 10 * 60000;
+const MINUTES_TO_CLOSE = 15 * 60000;
 let BROWSER_PATH;
 
 const STRING_PLACEHOLDER = "placeholder";
@@ -1930,7 +1930,7 @@ async function removeIrrelevantArticles(results, terms) {
         }
     }
 
-    let twentyPercentile = calculatePercentile(allScores, 0.45);
+    let percentile = calculatePercentile(allScores, 0.8);
 
     for (const term of Object.keys(results)) {
         reorganizedResults[term] = [];
@@ -1949,10 +1949,12 @@ async function removeIrrelevantArticles(results, terms) {
 
             let textToAnalyze = article.title + ' ' + article.fullText;
 
-            let mainTopics = getMainTopics(textToAnalyze, LANGUAGE);
-            if (!mainTopics.some(topic => terms.includes(topic.toLowerCase())) && article.score <= twentyPercentile) {
-                console.log(`Irrelevant article discarded: ${article.link}`);
-                continue;
+            if (article.score <= percentile) {
+                let mainTopics = getMainTopics(textToAnalyze, LANGUAGE);
+                if (!mainTopics.some(topic => terms.includes(topic.toLowerCase()))) {
+                    console.log(`Irrelevant article discarded: ${article.link}`);
+                    continue;
+                }
             }
 
             reorganizedResults[term].push(article);
