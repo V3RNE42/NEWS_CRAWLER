@@ -3,7 +3,11 @@ cosa.js
 hhhh.js
 hhhhhhhhhh.js
 node_modules
+temp
 crawled_results.json
-crawl_complete.flag
+statistics_output.json
+script.js
+*.flag
+*.txt
 test.js
 .vscode
