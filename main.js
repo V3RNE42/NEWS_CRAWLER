@@ -38,10 +38,12 @@ const EMPTY_STRING = "";
 const CRAWLED_RESULTS_JSON = "crawled_results.json";
 const CRAWL_COMPLETE_FLAG = "crawl_complete.flag";
 const SAFE_TO_REBOOT_FLAG = "safe_to_reboot.flag";
-const safePath = path.join(__dirname, SAFE_TO_REBOOT_FLAG);
 const CRAWL_COMPLETE_TEXT = "Crawling completed!";
 const SAFE_REBOOT_MESSAGE = "Safe to reboot";
 const MOST_COMMON_TERM = "Most_Common_Term";
+
+const safePath = path.join(__dirname, SAFE_TO_REBOOT_FLAG);
+const tempDir = path.join(__dirname, 'temp');
 
 let addedLinks = new Set();
 let workers = [];
@@ -1588,7 +1590,7 @@ async function scrapeRSSFeed(feedUrl, workerAddedLinks) {
 
                 if (!workerAddedLinks.has(link)) {
                     const title = cleanText(item.title);
-                    const fullText = await extractFullText(item, link);
+                    let fullText = await extractFullText(item, link);
                     const date = item.pubDate || item.updated;
 
                     if (!isRecent(date)) continue;
@@ -1600,10 +1602,12 @@ async function scrapeRSSFeed(feedUrl, workerAddedLinks) {
                     if (score > 0) {
                         workerAddedLinks.add(link);
                         console.log(`RSS-feed Added article! - ${link}`);
-
+                        
                         if (!results[mostCommonTerm.toLowerCase()]) {
                             results[mostCommonTerm.toLowerCase()] = [];
                         }
+
+                        await saveFullText(link, fullText);
 
                         results[mostCommonTerm.toLowerCase()].push({
                             title,
@@ -1611,10 +1615,11 @@ async function scrapeRSSFeed(feedUrl, workerAddedLinks) {
                             summary: STRING_PLACEHOLDER,
                             score,
                             term: mostCommonTerm,
-                            fullText,
                             date
                         });
                     }
+
+                    fullText = null; //clear fullText to free up memory
                 }
             } catch (error) {
                 console.error('Error processing item:', error, item);
@@ -1748,13 +1753,15 @@ async function crawlWebsite(url, terms, workerAddedLinks) {
                                     if (!resultados[mostCommonTerm] || resultados[mostCommonTerm] == null || resultados[mostCommonTerm] == undefined) {
                                         resultados[mostCommonTerm] = [];
                                     }
+
+                                    await saveFullText(link, articleContent);
+
                                     resultados[mostCommonTerm].push({
                                         title,
                                         link,
                                         summary: STRING_PLACEHOLDER,
                                         score,
                                         term: mostCommonTerm,
-                                        fullText: articleContent,
                                         date: dateText
                                     });
                                 }
@@ -2141,13 +2148,21 @@ const sendEmail = async (emailTime) => {
         let link = EMPTY_STRING, summary = EMPTY_STRING;
         if (topArticles[i].summary === STRING_PLACEHOLDER ||
             topArticles[i].summary.includes(FAILED_SUMMARY_MSSG)) {
-            ({ url: link, response: summary } = await summarizeText(
-                topArticles[i].link,
-                topArticles[i].fullText,
-                topArticles.length,
-                topArticles[i].title));
-            topArticles[i].summary = summary;
-            topArticles[i].link = link !== EMPTY_STRING ? link : topArticles[i].link;
+                try {
+                    let fullText = await getFullText(topArticles[i].link);
+                    if (!fullText) {
+                        fullText = await extractArticleTextWithRetry(topArticles[i].link);
+                    }
+                    ({ url: link, response: summary } = await summarizeText(
+                        topArticles[i].link,
+                        fullText,
+                        topArticles.length,
+                    topArticles[i].title));
+                    topArticles[i].summary = summary;
+                    topArticles[i].link = link !== EMPTY_STRING ? link : topArticles[i].link;
+                } catch (error) {
+                    console.log(`There was an error summarizing article: ${error}`);
+                }
         }
     }
 
@@ -2383,13 +2398,21 @@ const saveResults = async (results, emailTime, terms) => {
         for (let i = 0; i < numTopArticles; i++) {
             if (topArticles[i].summary === STRING_PLACEHOLDER ||
                 topArticles[i].summary.includes(FAILED_SUMMARY_MSSG)) {
-                ({ url: link, response: summary } = await summarizeText(
-                    topArticles[i].link,
-                    topArticles[i].fullText,
+                try {
+                    let fullText = await getFullText(topArticles[i].link);
+                    if (!fullText) {
+                        fullText = await extractArticleTextWithRetry(topArticles[i].link);
+                    }
+                    ({ url: link, response: summary } = await summarizeText(
+                        topArticles[i].link,
+                        fullText,
                     numTopArticles,
                     topArticles[i].title));
-                topArticles[i].summary = summary;
-                topArticles[i].link = link !== EMPTY_STRING ? link : topArticles[i].link;
+                    topArticles[i].summary = summary;
+                    topArticles[i].link = link !== EMPTY_STRING ? link : topArticles[i].link;
+                } catch (error) {
+                    console.log(`There was an error summarizing article: ${error}`);
+                }
             }
         }
         mostCommonTerm = mostCommonTerms(results);
@@ -2397,7 +2420,7 @@ const saveResults = async (results, emailTime, terms) => {
 
     const resultsWithTop = { results, topArticles, mostCommonTerm };
 
-    fs.writeFileSync(resultsPath, JSON.stringify(resultsWithTop, null, 2));
+    fs.writeFileSync(resultsPath, JSON.stringify(resultsWithTop, null, 2), 'utf8');
     if (thisIsTheTime) {
         fs.writeFileSync(flagPath, CRAWL_COMPLETE_TEXT);
         console.log(CRAWL_COMPLETE_TEXT)
@@ -2472,12 +2495,61 @@ const main = async () => {
     console.log("Preparing to send email...");
     await sendEmail(emailTime);
     console.log("Email sent. Main process completed.");
+
+    await cleanupTempFiles();
+    console.log("Cache clean-up completed!");
 };
+
+/** Ensure we hav a /temp folder as the program's cache */
+async function ensureTempDir() {
+    try {
+        await fs.accessSync(tempDir);
+    } catch (error) {
+        if (error.code === 'ENOENT') {
+            await fs.mkdirSync(tempDir, { recursive: true });
+        } else {
+            throw error;
+        }
+    }
+}
+
+/** Saves the full text of the article with that link to the cache */
+async function saveFullText(link, fullText) {
+    await ensureTempDir();
+    const fileName = encodeURIComponent(link) + '.txt';
+    const filePath = path.join(tempDir, fileName);
+    await fs.writeFileSync(filePath, fullText, 'utf8');
+}
+
+/** Gets the full text of the article with that link from the cache */
+async function getFullText(link) {
+    const fileName = encodeURIComponent(link) + '.txt';
+    const filePath = path.join(tempDir, fileName);
+    try {
+        return await fs.readFileSync(filePath, 'utf8');
+    } catch (error) {
+        console.error(`Error reading full text for ${link}: ${error.message}`);
+        return null;
+    }
+}
+
+/** Cleans up the cache of the /temp folder */
+async function cleanupTempFiles() {
+    try {
+        const files = await fs.readdirSync(tempDir);
+        for (const file of files) {
+            await fs.unlinkSync(path.join(tempDir, file));
+        }
+    } catch (error) {
+        console.error(`Error cleaning up temp files: ${error.message}`);
+    }
+}
 
 if (isMainThread) {
     // Main thread code
     (async () => {
         await assignBrowserPath();
+        await ensureTempDir();
         console.log(`Webcrawler scheduled to run indefinitely. Emails will be sent daily at ${config.time.email}`);
 
         while (true) {
