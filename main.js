@@ -281,13 +281,11 @@ let globalStopFlag = false;
 //GLOBAL ERROR HANDLERS
 process.on('uncaughtException', (error) => {
     console.error('Uncaught Exception:', error);
-    saveLog('uncaught_exception');
     checkSafeAndReboot(error.message);
 });
 
 process.on('unhandledRejection', (reason, promise) => {
     console.error('Unhandled Rejection at:', promise, 'reason:', reason);
-    saveLog('unhandled_rejection');
     checkSafeAndReboot(reason);
 });
 
@@ -301,6 +299,7 @@ function checkSafeAndReboot(reason) {
         } else if (data.trim() === SAFE_REBOOT_MESSAGE) {
             if (reason.includes('FATAL')) {
                 console.log('Safe to reboot flag is set. Initiating reboot...');
+                saveLog(reason);
                 initiateReboot(reason);
             } else {
                 console.log('That was NOT fatal. Exiting without reboot.');
