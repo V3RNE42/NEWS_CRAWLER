@@ -78,7 +78,6 @@ The `config.json` file allows you to customize the behavior of the webcrawler. H
 - `smtp_pass`: Set the SendGrid API key of your account
 - `topic_sensitivity`: Set the topic sensitivity -> The bigger the sensitivity, the less false positives will be added, but also the total amount of scraped articles - More false negatives (ranges from 1 to ∞)
 - `language`: Set the language in which the news articles will be found
-- `ignore_redundancy`: Tells the program wether or not to get rid of redundant articles. It's set to `false` by default, which tells the program to remove those pesky redundant articles.
 
 ### Customization Guide
 
@@ -144,7 +143,6 @@ El archivo `config.json` te permite personalizar el comportamiento del webcrawle
 - `email`: Establece la hora a la cual se envían los correos electrónicos
 - `api_key`: Establece tu clave API actual de OpenAI para usar el modelo GPT-4 para generar algunos resúmenes de correos electrónicos.
 - `smtp_pass`: Establece la clave API de SendGrid de tu cuenta
-- `topic_sensitivity`: Establece la sensibilidad temática -> A mayor sensibilidad, menos posibles falsos positivos quedan añadidos, pero también se reduce el número total de artículos recogidos - Más falsos negativos (Va de 1 a ∞)
 - `language`: Establece el lenguage en que se van a encontrar las noticias recogidas
 - `ignore_redundancy`: Le indica al programa si debe desechar los artículos redundantes. Por defecto está en `false`, lo cual indica que deberían eliminarse.
 
