@@ -110,7 +110,7 @@ const generateContainsPatterns = (tag, substrings) => {
 /* Attributes and their potential values commonly associated with the unwanted sections */
 const attributes = [
     { name: 'id', values: ['comments', 'comment-respond', 'related', 'most-read', 'newsletter', 'suscription', 'headerScroll', 'other-content', 'footer'] },
-    { name: 'class', values: ['comments', 'comment-respond', 'related', 'most-read', 'suggested-news', 'recirculation', 'newsletter', 'cta', 'subscription', 'author', 'bio', 'meta-tags', 'widget', 'lazyload-wrapper', 'ez-toc', 'sticky', 'mas-leidas', 'popular-posts', 'best-comments', 'content-related', 'o-carousel', 'share-after', 'Page-below', 'footer'] },
+    { name: 'class', values: ['comments', 'comments-area', 'comment-respond', 'related', 'most-read', 'suggested-news', 'recirculation', 'newsletter', 'cta', 'subscription', 'author', 'bio', 'meta-tags', 'widget', 'lazyload-wrapper', 'ez-toc', 'sticky', 'mas-leidas', 'popular-posts', 'best-comments', 'content-related', 'o-carousel', 'share-after', 'Page-below', 'footer'] },
     { name: 'src', values: ['most_read'] }
 ];
 
@@ -121,12 +121,14 @@ const substrings = ['o-carousel', 'c-article'];
 let patternsToRemoveFromHTML = [
     ...generatePatterns('aside', attributes),
     ...generatePatterns('div', attributes),
+    ...generateContainsPatterns('div', substrings),
     ...generatePatterns('section', attributes),
+    ...generateContainsPatterns('section', substrings),
     ...generatePatterns('footer', attributes),
     ...generatePatterns('article', attributes),
-    ...generateContainsPatterns('div', substrings),
-    ...generateContainsPatterns('section', substrings),
     ...generateContainsPatterns('article', substrings),
+    ...generatePatterns('ul', attributes),
+    ...generatePatterns('ol', attributes),
     // Sidebars and sidebar sections
     /<aside[^>]*>[\s\S]*?<\/aside>/gi,
     // Related news sections
@@ -139,6 +141,7 @@ let patternsToRemoveFromHTML = [
     /<aside[^>]*(id|class)="[^"]*most-read[^"]*"[^>]*>[\s\S]*?<\/aside>/gi,
     /<div[^>]*(id|class)="[^"]*suggested-news[^"]*"[^>]*>[\s\S]*?<\/div>/gi,
     /<div[^>]*(id|class)="[^"]*recirculation[^"]*"[^>]*>[\s\S]*?<\/div>/gi,
+    /<div id=\"comments\" class=\"comments-area\">[\s\S]*?<\/div>/gi,
     // Subscription and newsletter sections
     /<article[^>]*(id|class)="[^"]*newsletter[^"]*"[^>]*>[\s\S]*?<\/article>/gi,
     /<section[^>]*(id|class)="[^"]*suscription[^"]*"[^>]*>[\s\S]*?<\/section>/gi,
@@ -1589,7 +1592,10 @@ async function scrapeRSSFeed(feedUrl, workerAddedLinks) {
                 link = normalizeUrl(link);
 
                 if (!workerAddedLinks.has(link)) {
-                    const title = cleanText(item.title);
+                    let title = cleanText(item.title);
+                    if (title.includes('Comentario en ')) {
+                        title.replace('Comentario en ', "");  //This is a temporary fix
+                    }
                     let fullText = await extractFullText(item, link);
                     const date = item.pubDate || item.updated;
 
@@ -1731,7 +1737,10 @@ async function crawlWebsite(url, terms, workerAddedLinks) {
                     const dateElement = $(article).find("span.news_dt");
 
                     if (titleElement.length && linkElement.length && dateElement.length) {
-                        const title = titleElement.text().trim();
+                        let title = titleElement.text().trim();
+                        if (title.includes('Comentario en ')) {
+                            title.replace('Comentario en ', "");  //This is a temporary fix
+                        }
                         let link = normalizeUrl(linkElement.attr("href"));
                         const dateText = dateElement.text().trim();
 
