@@ -1748,9 +1748,7 @@ async function crawlWebsite(url, terms, workerAddedLinks) {
                         if (!workerAddedLinks.has(link)) {
                             if (!isWebsiteValid(url, link) || !isRecent(dateText)) continue;
 
-                            if (!addLinkGlobally(link)) {
-                                continue;
-                            }
+                            if (addLinkGlobally(link)) continue;
 
                             try {
                                 let articleContent = await extractArticleTextWithRetry(link);
