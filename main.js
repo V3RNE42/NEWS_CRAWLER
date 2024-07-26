@@ -1602,7 +1602,7 @@ async function scrapeRSSFeed(feedUrl, workerAddedLinks) {
 
                     if (!isRecent(date)) continue;
                     if (isOpinionArticle(item, link)) continue;
-                    if (!addLinkGlobally(link)) continue;
+                    if (addLinkGlobally(link)) continue;
 
                     const { score, mostCommonTerm } = relevanceScoreAndMaxCommonFoundTerm(title, fullText);
 
