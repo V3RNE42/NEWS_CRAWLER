@@ -1293,6 +1293,7 @@ async function detectRSS(url, baseUrl, rssFeeds = new Set(), depth = 0, visited 
             fullUrl.includes('/suscri') ||
             fullUrl.includes('/subscri') ||
             fullUrl.includes('/donate') ||
+            fullUrl.includes('/comments/') ||
             fullUrl.includes('redirect_to')) {
             return Array.from(rssFeeds);
         }
