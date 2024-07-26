@@ -1275,16 +1275,13 @@ async function detectRSS(url, baseUrl, rssFeeds = new Set(), depth = 0, visited 
             }
             // Remove trailing slash
             fullUrl = fullUrl.href.replace(/\/$/, '');
-            //if '%' is included within fullUrl, crop everything from and including '%'
-            fullUrl = removeWeirdCharactersFromUrl(fullUrl);
         } catch (error) {
             console.error(`Invalid URL: ${url}`, error.message);
             return Array.from(rssFeeds);
         }
 
         // Skip known problematic URLs
-        if (!fullUrl.includes('http') ||
-            urlContainsOpinion(fullUrl) ||
+        if (urlContainsOpinion(fullUrl) ||
             fullUrl.includes('cloudflare.com') || 
             fullUrl.includes('whatsapp.com') || 
             fullUrl.includes('youtube.com') || 
@@ -1299,6 +1296,9 @@ async function detectRSS(url, baseUrl, rssFeeds = new Set(), depth = 0, visited 
             fullUrl.includes('redirect_to')) {
             return Array.from(rssFeeds);
         }
+        
+        //if '%' is included within fullUrl, crop everything from and including '%'
+        fullUrl = removeWeirdCharactersFromUrl(fullUrl);
 
         const response = await fetchForRSS(fullUrl);
         if (!response) {
