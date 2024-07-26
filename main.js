@@ -1602,7 +1602,7 @@ async function scrapeRSSFeed(feedUrl, workerAddedLinks) {
 
                     if (!isRecent(date)) continue;
                     if (isOpinionArticle(item, link)) continue;
-                    if (addLinkGlobally(link)) continue;
+                    if (!addLinkGlobally(link)) continue;
 
                     const { score, mostCommonTerm } = relevanceScoreAndMaxCommonFoundTerm(title, fullText);
 
@@ -1748,7 +1748,7 @@ async function crawlWebsite(url, terms, workerAddedLinks) {
                         if (!workerAddedLinks.has(link)) {
                             if (!isWebsiteValid(url, link) || !isRecent(dateText)) continue;
 
-                            if (addLinkGlobally(link)) continue;
+                            if (!addLinkGlobally(link)) continue;
 
                             try {
                                 let articleContent = await extractArticleTextWithRetry(link);
