@@ -2209,7 +2209,7 @@ const sendEmail = async (emailTime) => {
             emailBody += `<b>${term.toUpperCase()} - ${articles.length} link${articles.length === 1 ? EMPTY_STRING : "s"}</b><br>`;
             articles.forEach((article) => {
                 let isTopArticle = topArticleLinks.includes(article.link);
-                emailBody += `<a href="${article.link}" style="color: ${isTopArticle ? "red" : "blue"};">${article.title}</a><br>`;
+                emailBody += `<b>*</b> <a href="${article.link}" style="color: ${isTopArticle ? "red" : "blue"};">${article.title}</a><br>`;
             });
             emailBody += "<br><br>";
         }
