@@ -1294,6 +1294,7 @@ async function detectRSS(url, baseUrl, rssFeeds = new Set(), depth = 0, visited 
             fullUrl.includes('/subscri') ||
             fullUrl.includes('/donate') ||
             fullUrl.includes('/comments/') ||
+            fullUrl.includes('login.php') ||
             fullUrl.includes('redirect_to')) {
             return Array.from(rssFeeds);
         }
@@ -1576,6 +1577,8 @@ async function scrapeRSSFeed(feedUrl, workerAddedLinks) {
         for (let item of items) {
             if (globalStopFlag) break;
 
+            if (isOpinionArticle(item, feedUrl)) continue;
+
             try {
                 let link = extractLink(item);
                 link = removePatterns(link, [/<!\[CDATA\[ /gi, / ]]>/gi]);
@@ -1594,14 +1597,10 @@ async function scrapeRSSFeed(feedUrl, workerAddedLinks) {
 
                 if (!workerAddedLinks.has(link)) {
                     let title = cleanText(item.title);
-                    if (title.includes('Comentario en ')) {
-                        title.replace('Comentario en ', "");  //This is a temporary fix
-                    }
                     let fullText = await extractFullText(item, link);
                     const date = item.pubDate || item.updated;
 
                     if (!isRecent(date)) continue;
-                    if (isOpinionArticle(item, link)) continue;
                     if (!addLinkGlobally(link)) continue;
 
                     const { score, mostCommonTerm } = relevanceScoreAndMaxCommonFoundTerm(title, fullText);
@@ -1739,9 +1738,6 @@ async function crawlWebsite(url, terms, workerAddedLinks) {
 
                     if (titleElement.length && linkElement.length && dateElement.length) {
                         let title = titleElement.text().trim();
-                        if (title.includes('Comentario en ')) {
-                            title.replace('Comentario en ', "");  //This is a temporary fix
-                        }
                         let link = normalizeUrl(linkElement.attr("href"));
                         const dateText = dateElement.text().trim();
 
