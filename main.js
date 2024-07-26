@@ -2461,6 +2461,8 @@ const main = async () => {
 
         console.log(`Cycle end time set to: ${cycleEndTime}`);
 
+        globalLinks = new Set(); //Resetting global Links is crucial
+
         resultados = loadPreviousResults();
         console.log("Previous results loaded.");
 
