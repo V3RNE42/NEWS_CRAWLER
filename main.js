@@ -1284,6 +1284,7 @@ async function detectRSS(url, baseUrl, rssFeeds = new Set(), depth = 0, visited 
 
         // Skip known problematic URLs
         if (!fullUrl.includes('http') ||
+            urlContainsOpinion(fullUrl) ||
             fullUrl.includes('cloudflare.com') || 
             fullUrl.includes('whatsapp.com') || 
             fullUrl.includes('youtube.com') || 
