@@ -2270,8 +2270,8 @@ const crawlWebsites = async (cycleEndTime) => {
     for (const term of terms) allResults[term] = [];
 
     const shuffledWebsites = shuffleArray([...websites]);
-    const maxConcurrentWorkers = Math.floor(os.cpus().length*0.5);
-    let MINIMUM_AMOUNT_WORKERS = 1 + Math.floor(maxConcurrentWorkers * 0.2);
+    const maxConcurrentWorkers = os.cpus().length;
+    let MINIMUM_AMOUNT_WORKERS = 1 + Math.ceil(maxConcurrentWorkers * 0.2);
     const websiteChunks = chunkArray(shuffledWebsites, maxConcurrentWorkers);
 
     console.log(`Creating ${maxConcurrentWorkers} worker(s)...`);
