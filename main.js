@@ -1339,7 +1339,9 @@ async function detectRSS(url, baseUrl, rssFeeds = new Set(), depth = 0, visited 
             if ((feedTypes.includes(type) || href?.includes('/feed')) && href) {
                 try {
                     const absoluteFeedUrl = new URL(href, fullUrl).href.replace(/\/$/, '');
-                    if (['http:', 'https:'].includes(new URL(absoluteFeedUrl).protocol)) {
+                    if (['http:', 'https:'].includes(new URL(absoluteFeedUrl).protocol) && 
+                        !absoluteFeedUrl.includes('/comments/') &&
+                        !urlContainsOpinion(absoluteFeedUrl)) {
                         rssFeeds.add(removeWeirdCharactersFromUrl(absoluteFeedUrl));
                     }
                 } catch (err) {
@@ -1355,7 +1357,9 @@ async function detectRSS(url, baseUrl, rssFeeds = new Set(), depth = 0, visited 
             if (href && rssPatterns.some(pattern => href.toLowerCase().includes(pattern))) {
                 try {
                     const absoluteFeedUrl = new URL(href, fullUrl).href.replace(/\/$/, '');
-                    if (['http:', 'https:'].includes(new URL(absoluteFeedUrl).protocol)) {
+                    if (['http:', 'https:'].includes(new URL(absoluteFeedUrl).protocol) && 
+                        !absoluteFeedUrl.includes('/comments/') &&
+                        !urlContainsOpinion(absoluteFeedUrl)) {
                         rssFeeds.add(removeWeirdCharactersFromUrl(absoluteFeedUrl));
                     }
                 } catch (err) {
@@ -1371,7 +1375,7 @@ async function detectRSS(url, baseUrl, rssFeeds = new Set(), depth = 0, visited 
                 .filter(link => {
                     try {
                         let url = new URL(link, fullUrl);
-                        return ['http:', 'https:'].includes(url.protocol);
+                        return ['http:', 'https:'].includes(url.protocol) && !url.includes('/comments/') && !urlContainsOpinion(url);
                     } catch {
                         return false;
                     }
