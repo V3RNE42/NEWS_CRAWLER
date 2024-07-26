@@ -2454,14 +2454,14 @@ const main = async () => {
 
         const now = new Date();
         emailTime = parseTime(config.time.email);
-        console.log('Current emailEndTime:', emailTime);
 
         const crawlCycleEndTime = new Date(now.getTime() + 10 * 60 * 1000); // 1/6 hour from now
-        const cycleEndTime = emailTime < crawlCycleEndTime ? emailTime : crawlCycleEndTime;
+        const cycleEndTime = new Date(Math.min(emailTime, crawlCycleEndTime));
 
         console.log(`Cycle end time set to: ${cycleEndTime}`);
 
         globalLinks = new Set(); //Resetting global Links is crucial
+        addedLinks = new Set(); //Resetting addedLinks is crucial, too
 
         resultados = loadPreviousResults();
         console.log("Previous results loaded.");
