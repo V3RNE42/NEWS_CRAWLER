@@ -1067,7 +1067,7 @@ function closeToEmailingTime(emailEndTime) {
     }
 
     const now = new Date();
-    const endWindow = new Date(emailEndTime.getTime() + MINUTES_TO_CLOSE);
+    const endWindow = new Date(emailEndTime.getTime() + (MINUTES_TO_CLOSE * 3));
 
     if (now >= emailEndTime && now < endWindow) {
         globalStopFlag = true;
@@ -2476,7 +2476,7 @@ const main = async () => {
         }
 
         if (isMainThread) {
-            await saveResults(resultados, emailTime, terms);
+            globalStopFlag = await saveResults(resultados, emailTime, terms);
             console.log("Results saved.");
         }
 
@@ -2487,14 +2487,6 @@ const main = async () => {
             console.log("Stopping main loop due to global stop flag");
             break;
         }
-
-        console.log("Cycle completed. Checking if it's time to send email...");
-        if (closeToEmailingTime(emailTime)) {
-            console.log("It's time to send email. Breaking the loop.");
-            break;
-        }
-
-        resetLog();
 
         console.log("Waiting before starting next cycle...");
         await new Promise(resolve => setTimeout(resolve, 60000)); // 1 minute delay
@@ -2511,6 +2503,8 @@ const main = async () => {
 
     await cleanupTempFiles();
     console.log("Cache clean-up completed!");
+
+    resetLog();
 };
 
 /** Ensure we hav a /temp folder as the program's cache */
@@ -2528,22 +2522,50 @@ async function ensureTempDir() {
 
 /** Saves the full text of the article with that link to the cache */
 async function saveFullText(link, fullText) {
-    await ensureTempDir();
+    return new Promise((resolve, reject) => {
+        try {
+            ensureTempDir(); // Ensure the directory exists
     const fileName = encodeURIComponent(link) + '.txt';
     const filePath = path.join(tempDir, fileName);
-    await fs.writeFileSync(filePath, fullText, 'utf8');
+            
+            // Check if the file path is too long
+            if (filePath.length > 260) { // Windows has a 260 character path limit
+                console.warn(`File path too long, using hash instead for ${link}`);
+                const hash = require('crypto').createHash('md5').update(link).digest('hex');
+                const shortenedFileName = hash + '.txt';
+                const shortenedFilePath = path.join(tempDir, shortenedFileName);
+                fs.writeFileSync(shortenedFilePath, fullText, 'utf8');
+            } else {
+                fs.writeFileSync(filePath, fullText, 'utf8');
+            }
+            resolve();
+        } catch (error) {
+            console.error(`Error saving full text for ${link}: ${error.message}`);
+            reject(error);
+        }
+    });
 }
 
 /** Gets the full text of the article with that link from the cache */
 async function getFullText(link) {
+    return new Promise((resolve, reject) => {
     const fileName = encodeURIComponent(link) + '.txt';
-    const filePath = path.join(tempDir, fileName);
-    try {
-        return await fs.readFileSync(filePath, 'utf8');
+        let filePath = path.join(tempDir, fileName);
+        
+        try {
+            if (filePath.length > 260) {
+                const hash = require('crypto').createHash('md5').update(link).digest('hex');
+                const shortenedFileName = hash + '.txt';
+                filePath = path.join(tempDir, shortenedFileName);
+            }
+            
+            const content = fs.readFileSync(filePath, 'utf8');
+            resolve(content);
     } catch (error) {
         console.error(`Error reading full text for ${link}: ${error.message}`);
-        return null;
+            resolve(null);
     }
+    });
 }
 
 /** Cleans up the cache of the /temp folder */
@@ -2627,5 +2649,4 @@ if (isMainThread) {
 //LAST ERROR HANDLER
 process.on('exit', (code) => {
     console.log(`About to exit with code: ${code}`);
-    saveLog('process_exit');
 });
