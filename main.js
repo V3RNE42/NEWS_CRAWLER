@@ -622,14 +622,14 @@ function isRecent(dateText) {
         const timestamp = parseInt(dateText, 10);
         if (timestamp > 0) {
             date = new Date(timestamp * 1000);
-            return differenceInHours(now, date) < 24;
+            return differenceInHours(now, date) < 24 || date > now;
         }
     }
 
     // Try parsing as ISO 8601 first
     date = parseISO(dateText);
-    if (!isNaN(date)) {
-        return differenceInHours(now, date) < 24;
+    if (isValid(date)) {
+        return differenceInHours(now, date) < 24 || date > now;
     }
 
     const months = { Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5, Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11 };
@@ -639,7 +639,7 @@ function isRecent(dateText) {
     if (rfc822Match_1) {
         const [_, day, month, year, time, offset] = rfc822Match_1;
         date = new Date(`${year}-${(months[month] + 1).toString().padStart(2, '0')}-${day.padStart(2, '0')}T${time}${offset}`);
-        return differenceInHours(now, date) < 24;
+        return differenceInHours(now, date) < 24 || date > now;
     }
 
     // Try parsing as RFC 2822
@@ -656,7 +656,7 @@ function isRecent(dateText) {
             const totalOffsetMinutes = offsetHours * 60 + (offsetHours < 0 ? -offsetMinutes : offsetMinutes);
             date = subMinutes(date, totalOffsetMinutes);
         }
-        return differenceInHours(now, date) < 24;
+        return differenceInHours(now, date) < 24 || date > now;
     }
 
     const offsetMap = {
@@ -703,7 +703,7 @@ function isRecent(dateText) {
             let [hoursOffset, minutesOffset] = offset.split(':').map(Number);
             let totalOffsetMinutes = hoursOffset * 60 + (hoursOffset < 0 ? -minutesOffset : minutesOffset);
             date = subMinutes(date, totalOffsetMinutes);
-            return differenceInHours(now, date) < 24;
+            return differenceInHours(now, date) < 24 || date > now;
         }
     }
 
@@ -715,7 +715,7 @@ function isRecent(dateText) {
             let [hoursOffset, minutesOffset] = offset.split(':').map(Number);
             let totalOffsetMinutes = hoursOffset * 60 + (hoursOffset < 0 ? -minutesOffset : minutesOffset);
             date = subMinutes(date, totalOffsetMinutes);
-            return differenceInHours(now, date) < 24;
+            return differenceInHours(now, date) < 24 || date > now;
         }
     }
 
@@ -731,7 +731,7 @@ function isRecent(dateText) {
             if (isValid(date)) {
                 let totalOffsetMinutes = offset * 60;
                 date = subMinutes(date, totalOffsetMinutes);
-                return differenceInHours(now, date) < 24;
+                return differenceInHours(now, date) < 24 || date > now;
             }
         }
     }
@@ -748,7 +748,7 @@ function isRecent(dateText) {
             if (isValid(date)) {
                 let totalOffsetMinutes = offset * 60;
                 date = subMinutes(date, totalOffsetMinutes);
-                return differenceInHours(now, date) < 24;
+                return differenceInHours(now, date) < 24 || date > now;
             }
         }
     }
@@ -756,13 +756,13 @@ function isRecent(dateText) {
     // Handle "dd/MM/yyyy HH:mm" format
     date = parse(dateText, 'dd/MM/yyyy HH:mm', new Date());
     if (isValid(date)) {
-        return differenceInHours(now, date) < 24;
+        return differenceInHours(now, date) < 24 || date > now;
     }
 
     // Handle "dd-MM-yyyy HH:mm:ss" format
     date = parse(dateText, 'dd-MM-yyyy HH:mm:ss', new Date());
     if (isValid(date)) {
-        return differenceInHours(now, date) < 24;
+        return differenceInHours(now, date) < 24 || date > now;
     }
 
     // Handle preamble like "By Lucas Leiroz de Almeida, July 08, 2024"
@@ -771,7 +771,7 @@ function isRecent(dateText) {
         let [_, datePart] = preambleMatch;
         date = parse(datePart, 'MMMM dd, yyyy', new Date(), { locale: enUS });
         if (isValid(date)) {
-            return differenceInHours(now, date) < 24;
+            return differenceInHours(now, date) < 24 || date > now;
         }
     }
 
@@ -807,7 +807,7 @@ function isRecent(dateText) {
                 date.setDate(date.getDate() - (parseInt(amount) * 7));
                 break;
             case 'mes':
-            case 'meses':
+	        case 'meses':
             case 'month':
             case 'months':
                 date.setMonth(date.getMonth() - parseInt(amount));
@@ -840,7 +840,7 @@ function isRecent(dateText) {
     }
 
     if (isValid(date)) {
-        return differenceInHours(now, date) < 24;
+        return differenceInHours(now, date) < 24 || date > now;
     }
 
     // Handle natural language dates like "Panamá, 09 de julio del 2024"
@@ -856,7 +856,7 @@ function isRecent(dateText) {
             year = year ? parseInt(year) : now.getFullYear();
             day = day ? parseInt(day) : 1;
             date = new Date(year, month, day);
-            return differenceInHours(now, date) < 24;
+            return differenceInHours(now, date) < 24 || date > now;
         }
     }
 
@@ -870,8 +870,14 @@ function isRecent(dateText) {
         month = spanishMonthFull[month.toLowerCase()];
         if (month !== undefined) {
             date = new Date(parseInt(year), month, parseInt(day));
-            return differenceInHours(now, date) < 24;
+            return differenceInHours(now, date) < 24 || date > now;
         }
+    }
+
+    // Last resort: try to parse with built-in Date constructor
+    date = new Date(dateText);
+    if (isValid(date)) {
+        return differenceInHours(now, date) < 24 || date > now;
     }
 
     console.warn(`Could not parse date: ${dateText}`);
