@@ -1864,7 +1864,7 @@ async function crawlWebsite(url, terms, workerAddedLinks) {
  * @param {Array} array - The array to be split into chunks.
  * @param {number} numChunks - The number of chunks to create.
  * @return {Array<Array>} An array of chunks, each containing a portion of the original array.  */
-const chunkArrayShuffled = (array, numChunks) => {
+const splitArrayIntoChunks = (array, numChunks) => {
     let set = new Set(array);
     array = Array.from(set);
     
@@ -2315,7 +2315,7 @@ const crawlWebsites = async (cycleEndTime) => {
     const shuffledWebsites = shuffleArray([...websites]);
     const maxConcurrentWorkers = os.cpus().length;
     let MINIMUM_AMOUNT_WORKERS = 1 + Math.ceil(maxConcurrentWorkers * 0.2);
-    const websiteChunks = chunkArrayShuffled(shuffledWebsites, maxConcurrentWorkers);
+    const websiteChunks = splitArrayIntoChunks(shuffledWebsites, maxConcurrentWorkers);
 
     console.log(`Creating ${maxConcurrentWorkers} worker(s)...`);
     let startedWorkers = 0;  // Define startedWorkers here
