@@ -1860,7 +1860,7 @@ async function crawlWebsite(url, terms, workerAddedLinks) {
     return results;
 }
 
-/** Splits an array into a specified number of chunks, shuffling them in the process.
+/** Splits an array into a specified number of chunks
  * @param {Array} array - The array to be split into chunks.
  * @param {number} numChunks - The number of chunks to create.
  * @return {Array<Array>} An array of chunks, each containing a portion of the original array.  */
