@@ -50,9 +50,8 @@ let workers = [];
 let consoleLog = ''
 terms = terms.map((term) => term.toLowerCase());
 
-function getTimestamp() {
-    return new Date().toISOString();
-}
+/** Returns the current timestamp in ISO format */
+let getTimestamp = () => new Date().toISOString();
 
 /** Reset the console log by clearing the content. */
 function resetLog() {
@@ -83,7 +82,7 @@ class LightweightError extends Error {
     }
 }
 
-/* Function to generate extensive RegExp patterns for a given tag, attributes, and values*/
+/** Function to generate extensive RegExp patterns for a given tag, attributes, and values*/
 const generatePatterns = (tag, attributes) => {
     let patterns = [];
     attributes.forEach(attr => {
@@ -96,7 +95,7 @@ const generatePatterns = (tag, attributes) => {
     return patterns;
 };
 
-/* Function to generate patterns for attributes containing specific substrings*/
+/** Function to generate patterns for attributes containing specific substrings*/
 const generateContainsPatterns = (tag, substrings) => {
     let patterns = [];
     substrings.forEach(substring => {
@@ -107,18 +106,18 @@ const generateContainsPatterns = (tag, substrings) => {
     return patterns;
 };
 
-/* Attributes and their potential values commonly associated with the unwanted sections */
+/** Attributes and their potential values commonly associated with the unwanted sections */
 const attributes = [
     { name: 'id', values: ['comments', 'comment-respond', 'related', 'most-read', 'newsletter', 'suscription', 'headerScroll', 'other-content', 'footer'] },
     { name: 'class', values: ['comments', 'comments-area', 'comment-respond', 'related', 'most-read', 'suggested-news', 'recirculation', 'newsletter', 'cta', 'subscription', 'author', 'bio', 'meta-tags', 'widget', 'lazyload-wrapper', 'ez-toc', 'sticky', 'mas-leidas', 'popular-posts', 'best-comments', 'content-related', 'o-carousel', 'share-after', 'Page-below', 'footer'] },
     { name: 'src', values: ['most_read'] }
 ];
 
-/* Substrings to match attributes containing specific substrings*/
+/** Substrings to match attributes containing specific substrings*/
 const substrings = ['o-carousel', 'c-article'];
 
 /** Hyperexhaustive pattern list that contains unwanted sections of HTML*/
-let patternsToRemoveFromHTML = [
+let patternsToRemoveFromHTML = Array.from(new Set([
     ...generatePatterns('aside', attributes),
     ...generatePatterns('div', attributes),
     ...generateContainsPatterns('div', substrings),
@@ -208,9 +207,7 @@ let patternsToRemoveFromHTML = [
     // Broad patterns to capture common unwanted tags
     /<aside[^>]*>[\s\S]*?<\/aside>/gi,
     /<footer[^>]*>[\s\S]*?<\/footer>/gi
-];
-
-patternsToRemoveFromHTML = Array.from(new Set(patternsToRemoveFromHTML));
+]));
 
 let globalLinks = new Set();
 
@@ -251,6 +248,14 @@ const removePatterns = (content, ArrRegExpToRemove) => {
     return newContent;
 };
 
+/** Converts a time string in 24-hour format to a Date object representing the
+ * moment in time closest to the given time but at least MINUTES_TO_CLOSE
+ * minutes in the future.
+ * @param {string} timeStr - The time to parse in 24-hour format (HH:MM).
+ * @returns {Date} A Date object closest to the given time but at least
+ *   MINUTES_TO_CLOSE minutes in the future.
+ * @throws {LightweightError} If the time string is invalid or if the parsed
+ *   hour or minute is not a number.*/
 const parseTime = (timeStr) => {
     // Regular expression to match HH:MM format
     const timeRegex = /^([0-1]?[0-9]|2[0-3]):([0-5][0-9])$/;
@@ -294,6 +299,10 @@ process.on('unhandledRejection', (reason, promise) => {
     checkSafeAndReboot(reason);
 });
 
+/** Checks if the safe-to-reboot flag is set and if so, initiates a system
+ * reboot with the given reason. If the flag is not set, exits without
+ * rebooting. If the flag cannot be read, exits with an error code.
+ * @param {Error} reason - The error or reason for the reboot. */
 function checkSafeAndReboot(reason) {
     console.log(`Checking if it's safe to reboot due to: ${reason}`);
     fs.readFile(safePath, 'utf8', (err, data) => {
@@ -319,6 +328,10 @@ function checkSafeAndReboot(reason) {
     });
 }
 
+/** Initiates a system reboot with the given reason. This function is used
+ * by the uncaught exception and unhandled rejection handlers to reboot the
+ * system if something critical happens.
+ * @param {Error} reason - The error or reason for the reboot. */
 function initiateReboot(reason) {
     console.log(`Initiating system reboot due to: ${reason}`);
     if (process.platform === "win32") {
@@ -355,7 +368,7 @@ async function assignBrowserPath() {
 const todayDate = () => {
     const today = new Date();
     const day = String(today.getDate()).padStart(2, '0');
-    const month = String(today.getMonth() + 1).padStart(2, '0'); // Months are zero-based
+    const month = String(today.getMonth() + 1).padStart(2, '0'); // Months are zero-based 
     const year = today.getFullYear();
     return `${day}/${month}/${year}`;
 }
@@ -430,6 +443,8 @@ const cleanText = (html) => {
 };
 
 async function getChunkedOpenAIResponse(text, topic, maxTokens) {
+    let currentSummary = EMPTY_STRING;
+
     /** Generates a prompt for OpenAI to generate a summary of a specific part of a news article.
      * @param {string} news_content - The content of the news article.
      * @param {string} news_topic - The topic of the news article.
@@ -439,7 +454,8 @@ async function getChunkedOpenAIResponse(text, topic, maxTokens) {
     function getPrompt(news_content, news_topic, current, total) {
         return `Haz un resumen del siguiente fragmento que cubre la parte ${current} de ${total}` +
             `de la siguiente noticia:\n\n\n\n${news_content}\n\n\n\n` +
-            `Ignora todo texto que no tenga que ver con el tema de la noticia: ${news_topic}`;
+            `Ignora todo lo que no tenga que ver con el tema de la noticia: ${news_topic.toLocaleUpperCase()}` + 
+            `, e ignora también lo que ya haya sido resumido hasta ahora: \n\n\n\n''_${currentSummary}_''`;
     }
 
     try {
@@ -463,6 +479,7 @@ async function getChunkedOpenAIResponse(text, topic, maxTokens) {
             for await (const chunkResponse of response) {
                 respuesta += chunkResponse.choices[0]?.delta?.content || EMPTY_STRING;
             }
+            currentSummary += respuesta;
         }
 
         return respuesta;
@@ -1791,9 +1808,28 @@ async function crawlWebsite(url, terms, workerAddedLinks) {
                     }
                 }
             } catch (error) {
-                console.error(`Error crawling ${url} for term ${term}: ${error.message}`);
-                if (error.response) {
-                    console.error(`Status: ${error.response.status}, Data: ${JSON.stringify(error.response.data)}`);
+                try {
+                    /***
+                     * TODO: IMPLEMENT THIS
+                     * 1 - Directly visit the given link of the webpage
+                     * 2 - Localize the search box (VERY IMPORTANT)
+                     * 3 - For every term:
+                     *  3.1 - Type the term in the search box
+                     *  3.2 - Click the search button
+                     *  3.3 - For every article in the search results:
+                     *      3.3.1 - Extract the title, link, and date
+                     *      3.3.2 - If the article is valid and recent:
+                     *          3.3.2.1 - Extract the full text of the article
+                     *          3.3.2.2 - Calculate the relevance score and most common term
+                     *          3.3.2.3 - Add the article to the resultados object
+                     *          3.3.2.4 - Clear articleContent to free up memory
+                     * 5 - Return the resultados object
+                     * */
+                } catch (error) {
+                    console.error(`Error crawling ${url} for term ${term}: ${error.message}`);
+                    if (error.response) {
+                        console.error(`Status: ${error.response.status}, Data: ${JSON.stringify(error.response.data)}`);
+                    }
                 }
             }
         }
@@ -1824,11 +1860,11 @@ async function crawlWebsite(url, terms, workerAddedLinks) {
     return results;
 }
 
-/** Splits an array into a specified number of chunks.
+/** Splits an array into a specified number of chunks, shuffling them in the process.
  * @param {Array} array - The array to be split into chunks.
  * @param {number} numChunks - The number of chunks to create.
  * @return {Array<Array>} An array of chunks, each containing a portion of the original array.  */
-const chunkArray = (array, numChunks) => {
+const chunkArrayShuffled = (array, numChunks) => {
     let set = new Set(array);
     array = Array.from(set);
     
@@ -2279,7 +2315,7 @@ const crawlWebsites = async (cycleEndTime) => {
     const shuffledWebsites = shuffleArray([...websites]);
     const maxConcurrentWorkers = os.cpus().length;
     let MINIMUM_AMOUNT_WORKERS = 1 + Math.ceil(maxConcurrentWorkers * 0.2);
-    const websiteChunks = chunkArray(shuffledWebsites, maxConcurrentWorkers);
+    const websiteChunks = chunkArrayShuffled(shuffledWebsites, maxConcurrentWorkers);
 
     console.log(`Creating ${maxConcurrentWorkers} worker(s)...`);
     let startedWorkers = 0;  // Define startedWorkers here
