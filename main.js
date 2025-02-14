@@ -2264,12 +2264,14 @@ const sendEmail = async (emailTime) => {
     emailBody += "<br>¡Saludos!";
 
     try {
-        await resend.emails.send({            
-            from: sender,
-            to: recipients.join(", "),
-            subject: subject,
-            html: emailBody,
-        })
+        await recipients.forEach((recipient) => {
+            resend.emails.send({            
+                from: sender,
+                to: recipient,
+                subject: subject,
+                html: emailBody,
+            })
+        });
 
         console.log("Emails sent successfully!");
 
