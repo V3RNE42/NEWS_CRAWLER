@@ -2,10 +2,7 @@
     "email": {
         "sender": "sender@hotmail.com",
         "recipients": ["receiver@gmail.com"],
-        "smtp_server": "smtp.sendgrid.net",
-        "smtp_port": 587,
-        "smtp_user": "apikey",
-        "smtp_pass": "YOUR_SENDGRID_APIKEY"
+        "RESEND_API_KEY": "YOUR_RESEND_APIKEY"
     },
     "time": {
         "email": "23:55"

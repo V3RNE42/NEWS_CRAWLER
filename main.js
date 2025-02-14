@@ -1,5 +1,5 @@
 //MODULES AND IMPORTS
-const nodemailer = require("nodemailer");
+const { Resend } = require('resend');
 const fs = require("fs");
 const path = require("path");
 const util = require('util');
@@ -24,6 +24,7 @@ const { findValidChromiumPath } = require("./browser/browserPath");
 
 //IMPORTANT CONSTANTS AND SETTINGS
 const openai = new OpenAI({ apiKey: config.openai.api_key });
+const resend = new Resend(config.email.RESEND_API_KEY);
 const LANGUAGE = config.text_analysis.language;
 const MAX_TOKENS_PER_CALL = config.openai.max_tokens_per_call;
 const IGNORE_REDUNDANCY = config.text_analysis.ignore_redundancy;
@@ -2262,25 +2263,14 @@ const sendEmail = async (emailTime) => {
 
     emailBody += "<br>¡Saludos!";
 
-    const transporter = nodemailer.createTransport({
-        host: config.email.smtp_server,
-        port: config.email.smtp_port,
-        secure: false,
-        auth: {
-            user: config.email.smtp_user,
-            pass: config.email.smtp_pass,
-        },
-    });
-
-    const mailOptions = {
-        from: sender,
-        to: recipients.join(", "),
-        subject: subject,
-        html: emailBody,
-    };
-
     try {
-        await transporter.sendMail(mailOptions);
+        await resend.emails.send({            
+            from: sender,
+            to: recipients.join(", "),
+            subject: subject,
+            html: emailBody,
+        })
+
         console.log("Emails sent successfully!");
 
         fs.unlinkSync(path.join(__dirname, CRAWL_COMPLETE_FLAG));

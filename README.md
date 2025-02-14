@@ -1,13 +1,13 @@
 ### ENGLISH
 
 
-# NodeJS Webcrawler/Newsletter based on Sendgrid and OpenAI APIs
+# NodeJS Webcrawler/Newsletter based on Resend and OpenAI APIs
 
 Welcome to the NodeJS Webcrawler Newsletter! This newsletter aims to provide you with the latest updates, tips, and resources related to whatever you want! It's defaulted to Spanish newspapers and international security issues, but you can adapt it to your own needs! :^)
 
 ## Table of Contents
 
-- [NodeJS Webcrawler/Newsletter based on Sendgrid and OpenAI APIs](#nodejs-webcrawlernewsletter-based-on-sendgrid-and-openai-apis)
+- [NodeJS Webcrawler/Newsletter based on Resend and OpenAI APIs](#nodejs-webcrawlernewsletter-based-on-resend-and-openai-apis)
   - [Table of Contents](#table-of-contents)
   - [Introduction](#introduction)
   - [Usage](#usage)
@@ -15,7 +15,7 @@ Welcome to the NodeJS Webcrawler Newsletter! This newsletter aims to provide you
     - [Configuration Guide](#configuration-guide)
     - [Customization Guide](#customization-guide)
     - [SPANISH](#spanish)
-- [NodeJS Webcrawler/Newsletter basado en Sendgrid y OpenAI APIs](#nodejs-webcrawlernewsletter-basado-en-sendgrid-y-openai-apis)
+- [NodeJS Webcrawler/Newsletter basado en Resend y OpenAI APIs](#nodejs-webcrawlernewsletter-basado-en-resend-y-openai-apis)
   - [Introducción](#introducción)
   - [Uso](#uso)
   - [Instalación](#instalación)
@@ -71,11 +71,11 @@ To install and run this NodeJS webcrawler newsletter, please follow these steps:
 
 The `config.json` file allows you to customize the behavior of the webcrawler. Here are some key settings you can modify:
 
-- `sender`: Specify the email of the sender with an associated smtp.sendgrid account
+- `sender`: Specify the email of the sender with an associated Resend account
 - `recipients`: Specify the email of the people receiving your emails.
 - `email`: Set the hour from which the emails can be sent - obviously won't start until that hour is reached 
 - `api_key`: Set your current OpenAI API key to use the GPT-4 model for generating some email summaries.
-- `smtp_pass`: Set the SendGrid API key of your account
+- `RESEND_API_KEY`: Set the Resend API key of your account
 - `topic_sensitivity`: Set the topic sensitivity -> The bigger the sensitivity, the less false positives will be added, but also the total amount of scraped articles - More false negatives (ranges from 1 to ∞)
 - `language`: Set the language in which the news articles will be found
 
@@ -85,7 +85,7 @@ The `terminos.js` file contains the terms that the webcrawler will search for on
 
 ### SPANISH
 
-# NodeJS Webcrawler/Newsletter basado en Sendgrid y OpenAI APIs
+# NodeJS Webcrawler/Newsletter basado en Resend y OpenAI APIs
 
 ¡Bienvenido al Newsletter basado en webcrawling con NodeJS! Está predeterminado a periódicos españoles y temas de seguridad internacional, pero puedes adaptarlo a tus propias necesidades. :^)
 
@@ -138,11 +138,11 @@ Para instalar y ejecutar esta newsletter de webcrawler de NodeJS, sigue estos pa
 
 El archivo `config.json` te permite personalizar el comportamiento del webcrawler. Aquí hay algunas configuraciones clave que puedes modificar:
 
-- `sender`: Especifica el correo electrónico del remitente con una cuenta asociada smtp.sendgrid
+- `sender`: Especifica el correo electrónico del remitente con una cuenta asociada a Resend
 - `recipients`: Especifica el correo electrónico de las personas que recibirán tus correos electrónicos.
 - `email`: Establece la hora a la cual se envían los correos electrónicos
 - `api_key`: Establece tu clave API actual de OpenAI para usar el modelo GPT-4 para generar algunos resúmenes de correos electrónicos.
-- `smtp_pass`: Establece la clave API de SendGrid de tu cuenta
+- `RESEND_API_KEY`: Establece la clave API de Resend de tu cuenta
 - `language`: Establece el lenguage en que se van a encontrar las noticias recogidas
 - `ignore_redundancy`: Le indica al programa si debe desechar los artículos redundantes. Por defecto está en `false`, lo cual indica que deberían eliminarse.
 
