@@ -15,3 +15,4 @@ test.js
 *.flag
 script.js
 statistics_output.json
+package-lock.json
