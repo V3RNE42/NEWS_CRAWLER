@@ -2261,7 +2261,7 @@ const sendEmail = async (emailTime) => {
 
     sortedResults.forEach(([term, articles]) => {
         if (articles.length) {
-            emailBody += `<b>${term.toUpperCase()} ${articles.length === 1 ? EMPTY_STRING : "-" + articles.length + "links"}</b><br>`;
+            emailBody += `<b>${term.toUpperCase()} ${articles.length === 1 ? EMPTY_STRING : "-" + articles.length + " links"}</b><br>`;
             articles.forEach((article) => {
                 let isTopArticle = topArticleLinks.includes(article.link);
                 emailBody += `<b>*</b> <a href="${article.link}" style="color: ${isTopArticle ? "red" : "blue"};">${article.title}</a><br>`;
