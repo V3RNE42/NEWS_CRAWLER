@@ -2168,6 +2168,15 @@ function clearConsole() {
     }
 }
 
+async function sendEmailToRecipient(sender, recipient, subject, htmlBody) {
+    await resend.emails.send({
+        from: sender,
+        to: recipient,
+        subject: subject,
+        html: htmlBody
+    });
+}
+
 const sendEmail = async (emailTime) => {
     console.log("Sending emails...");
 
@@ -2264,17 +2273,10 @@ const sendEmail = async (emailTime) => {
     emailBody += "<br>¡Saludos!";
 
     try {
-        await recipients.forEach((recipient) => async () => {
-            const { _, error } = await resend.emails.send({            
-                from: sender,
-                to: recipient,
-                subject: subject,
-                html: emailBody,
-            });
-            if (error) {
-                console.log(`Error sending email to ${recipient}: ${error}`);
-            }
-        });
+
+        for (const recipient of recipients) {
+            await sendEmailToRecipient(sender, recipient, subject, emailBody);
+        };
 
         console.log("Emails sent successfully!");
 
