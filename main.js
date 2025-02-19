@@ -443,53 +443,6 @@ const cleanText = (html) => {
     return cleanedHtml;
 };
 
-async function getChunkedOpenAIResponse(text, topic, maxTokens) {
-    let currentSummary = EMPTY_STRING;
-
-    /** Generates a prompt for OpenAI to generate a summary of a specific part of a news article.
-     * @param {string} news_content - The content of the news article.
-     * @param {string} news_topic - The topic of the news article.
-     * @param {number} current - The current part number of the news article being summarized.
-     * @param {number} total - The total number of parts in the news article.
-     * @return {string} The generated prompt for OpenAI.                                            */
-    function getPrompt(news_content, news_topic, current, total) {
-        return `Haz un resumen del siguiente fragmento que cubre la parte ${current} de ${total}` +
-            `de la siguiente noticia:\n\n\n\n${news_content}\n\n\n\n` +
-            `Ignora todo lo que no tenga que ver con el tema de la noticia: ${news_topic.toLocaleUpperCase()}` + 
-            `, e ignora también lo que ya haya sido resumido hasta ahora: \n\n\n\n''_${currentSummary}_''`;
-    }
-
-    try {
-        const chunks = splitTextIntoChunks(text);
-        let respuesta = EMPTY_STRING;
-        maxTokens = Math.floor(maxTokens / chunks.length);
-
-        for (let i = 0; i < chunks.length; i++) {
-            let content = getPrompt(chunks[i], topic, (i + 1), chunks.length);
-            const response = await openai.chat.completions.create({
-                model: "gpt-4",
-                messages: [{ role: "user", content: content }],
-                stream: true,
-                max_tokens: maxTokens,
-                temperature: 0.1,
-                top_p: 0.1,
-                frequency_penalty: 0.0,
-                presence_penalty: 0.0,
-            });
-
-            for await (const chunkResponse of response) {
-                respuesta += chunkResponse.choices[0]?.delta?.content || EMPTY_STRING;
-            }
-            currentSummary += respuesta;
-        }
-
-        return respuesta;
-    } catch (error) {
-        console.error('Error in OpenAI response:', error);
-        return EMPTY_STRING;
-    }
-}
-
 /** Counts the tokens of a string
  *  @param {String} text The text whose tokens are to be counted
  *  @returns {number} The amount of tokens      */
@@ -498,32 +451,11 @@ const countTokens = (text) => {
     return text.trim().split(/\s+/).length;
 }
 
-
-/** Splits a text into chunks of a maximum number of tokens per call
- * @param {string} text - The text to be split into chunks.
- * @return {string[]} An array of chunks, each containing a maximum of MAX_TOKENS_PER_CALL tokens. */
-function splitTextIntoChunks(text) {
-    const tokens = text.split(/\s+/);
-    const chunks = [];
-    let currentChunk = EMPTY_STRING;
-
-    for (const token of tokens) {
-        if ((currentChunk + " " + token).length <= MAX_TOKENS_PER_CALL) {
-            currentChunk += " " + token;
-        } else {
-            chunks.push(currentChunk.trim());
-            currentChunk = token;
-        }
+async function getOpenAIResponse(text, topic, maxTokens) {
+    if (text == EMPTY_STRING || topic == EMPTY_STRING) {
+        return EMPTY_STRING;
     }
 
-    if (currentChunk) {
-        chunks.push(currentChunk.trim());
-    }
-
-    return chunks;
-}
-
-async function getNonChunkedOpenAIResponse(text, topic, maxTokens) {
     text = `Haz un resumen de la siguiente noticia:\n\n\n\n${text}\n\n\n\nIgnora todo texto que no tenga que ver con el tema de la noticia: ${topic}`;
     try {
         const response = await openai.chat.completions.create({
@@ -545,25 +477,6 @@ async function getNonChunkedOpenAIResponse(text, topic, maxTokens) {
         console.error('Error in OpenAI response:', error);
         return EMPTY_STRING;
     }
-}
-
-
-/** Retrieves an OpenAI response for the given text and title.
- * @param {string} text - The text to be summarized.
- * @param {string} topic - The topic of the news article.
- * @param {number} maxTokens - The maximum number of tokens allowed in the response.
- * @return {Promise<string>} A promise that resolves to the OpenAI response. If the text is empty or the topic is empty, an empty string is returned. If the number of tokens in the text exceeds the maximum allowed tokens per call, the function calls getChunkedOpenAIResponse to handle the text in chunks. 
- * Otherwise, it calls getNonChunkedOpenAIResponse to generate the response.  */
-async function getOpenAIResponse(text, topic, maxTokens) {
-    if (text == EMPTY_STRING || topic == EMPTY_STRING) {
-        return EMPTY_STRING;
-    }
-
-    if (countTokens(text) >= MAX_TOKENS_PER_CALL) {
-        return getChunkedOpenAIResponse(text, topic, maxTokens);
-    }
-
-    return getNonChunkedOpenAIResponse(text, topic, maxTokens);
 }
 
 /** Retrieves the content of a webpage behind a paywall by using a proxy website.
