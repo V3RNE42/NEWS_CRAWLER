@@ -1851,6 +1851,7 @@ const removeRedundantArticles = async (results) => {
             let unique = true;
             for (let j = 0; j < articles.length; j++) {
                 if (i !== j && !toRemove.has(j)) {
+                    // TODO: Implement function to compare articles content via NLP or LLM either local or API)
                     if (articles[i].link == articles[j].link ||
                         articles[i].title == articles[j].title) 
                     {
