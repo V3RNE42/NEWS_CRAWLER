@@ -494,6 +494,7 @@ async function getProxiedContent(link) {
         });
         let page = await browser.newPage();
         await page.setDefaultNavigationTimeout(120000);
+        //TODO: Use https://smry.ai instead of removepaywall.com
         await page.goto('https://www.removepaywall.com/', { waitUntil: 'domcontentloaded' });
         await page.type('input#simple-search', link);
         await page.click('#__next > div > section > div > header > div > div:nth-child(4) > form > button');
