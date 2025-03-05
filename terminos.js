@@ -431,6 +431,7 @@ module.exports = {
         "Níquel",
         "narcotráfico internacional",
         "peak oil",
+        "portaviones",
         "pico del petróleo",
         "pico petrolero",
         "presas hidroeléctricas",
