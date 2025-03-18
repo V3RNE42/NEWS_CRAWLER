@@ -1886,9 +1886,12 @@ function calculatePercentile(values, percentile) {
     return values[index];
 }
 
-/** Arranges the articles from the given results object based on their terms.
+
+/** Removes articles from the given results object that have a relevance score lower than a certain percentile,
+ * and do not contain any of the main topics in the article's text.
  * @param {Object} results - An object containing articles grouped by terms.
- * @return {Promise<Object>} - A promise that resolves to an object with articles reorganized by term */
+ * @param {Array<string>} terms - An array of terms to check against the main topics of the articles.
+ * @return {Promise<Object>} A promise that resolves with the reorganized results object. */
 async function removeIrrelevantArticles(results, terms) {
     let reorganizedResults = {};
 
