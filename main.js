@@ -19,7 +19,7 @@ const { parseISO, parse, differenceInHours, isValid, subMinutes } = require('dat
 const { es, enUS } = require('date-fns/locale');
 let { terms, websites } = require("./terminos");
 const config = require("./config.json");
-const { getMainTopics } = require("./text_analysis/topics_extractor");
+const { getMainTopics, bothCoveringSameEvent } = require("./text_analysis/topics_extractor");
 const { findValidChromiumPath } = require("./browser/browserPath");
 
 //IMPORTANT CONSTANTS AND SETTINGS
@@ -1853,8 +1853,11 @@ const removeRedundantArticles = async (results) => {
             for (let j = 0; j < articles.length; j++) {
                 if (i !== j && !toRemove.has(j)) {
                     // TODO: Implement function to compare articles content via NLP or LLM either local or API)
+                    let texI = await getFullText(articles[i].link);
+                    let texJ = await getFullText(articles[j].link);
                     if (articles[i].link == articles[j].link ||
-                        articles[i].title == articles[j].title) 
+                        articles[i].title == articles[j].title ||
+                        bothCoveringSameEvent(texI, texJ)) 
                     {
                         unique = false;
                         if (articles[i].score < articles[j].score) {
