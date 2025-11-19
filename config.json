@@ -1,10 +1,10 @@
 {
     "email": {
-        "sender": "julio@cabanillas.dev",
+        "sender": "placeholder",
         "recipients": [
-            "juliocabanillas42@gmail.com"
+            "some_example@gmail.com"
         ],
-        "RESEND_API_KEY": "re_UBtBv99m_4nY4P3grxsbYgjqtkBoq8fws"
+        "RESEND_API_KEY": "placeholder"
     },
     "time": {
         "email": "21:22"
