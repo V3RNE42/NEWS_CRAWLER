@@ -1,11 +1,13 @@
 {
     "email": {
-        "sender": "sender@hotmail.com",
-        "recipients": ["receiver@gmail.com"],
-        "RESEND_API_KEY": "YOUR_RESEND_APIKEY"
+        "sender": "julio@cabanillas.dev",
+        "recipients": [
+            "juliocabanillas42@gmail.com"
+        ],
+        "RESEND_API_KEY": "re_UBtBv99m_4nY4P3grxsbYgjqtkBoq8fws"
     },
     "time": {
-        "email": "23:55"
+        "email": "21:22"
     },
     "browser": {
         "path": "placeholder"
@@ -15,7 +17,7 @@
         "ignore_redundancy": false
     },
     "openai": {
-        "api_key": "YOUR_OPENAI_APIKEY",
+        "api_key": "",
         "max_tokens_per_call": 8000
     }
 }
